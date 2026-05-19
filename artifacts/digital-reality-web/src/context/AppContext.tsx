@@ -128,7 +128,7 @@ const SEED_EXPENSES: Expense[] = [
 
 const AppContext = createContext<AppContextType | null>(null);
 
-const STORAGE_KEY = "dr_app_data_web";
+const STORAGE_KEY = "dr_app_data_web_v2";
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState>({
