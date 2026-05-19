@@ -163,7 +163,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const login = async (email: string, _password: string): Promise<boolean> => {
     if (!email) return false;
-    const user: User = { name: "Amit Kumar", role: "Project Manager", email };
+    const user: User = { name: "Roshan Singh", role: "Project Manager", email };
     save({ user });
     return true;
   };
