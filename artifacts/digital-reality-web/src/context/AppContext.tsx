@@ -87,10 +87,10 @@ interface AppContextType extends AppState {
 }
 
 const SEED_PROJECTS: Project[] = [
-  { id: "p1", name: "SCR Bridge Survey", location: "KagaZnagar", state: "TS", status: "Active", progress: 75, client: "South Central Railway", projectId: "PRJ-2024-001", poValue: 5000000, startDate: "12 May 2024", endDate: "25 May 2024", projectManager: "Amit Kumar" },
-  { id: "p2", name: "Rail Corridor Mapping", location: "Guntakal", state: "AP", status: "Active", progress: 60, client: "Indian Railways", projectId: "PRJ-2024-002", poValue: 3500000, startDate: "05 May 2024", endDate: "20 May 2024", projectManager: "Amit Kumar" },
+  { id: "p1", name: "SCR Bridge Survey", location: "KagaZnagar", state: "TS", status: "Active", progress: 75, client: "South Central Railway", projectId: "PRJ-2024-001", poValue: 5000000, startDate: "12 May 2024", endDate: "25 May 2024", projectManager: "Roshan Singh" },
+  { id: "p2", name: "Rail Corridor Mapping", location: "Guntakal", state: "AP", status: "Active", progress: 60, client: "Indian Railways", projectId: "PRJ-2024-002", poValue: 3500000, startDate: "05 May 2024", endDate: "20 May 2024", projectManager: "Roshan Singh" },
   { id: "p3", name: "SHM Monitoring Project", location: "Vijayawada", state: "AP", status: "Planning", progress: 40, client: "NHAI", projectId: "PRJ-2024-003", poValue: 2800000, startDate: "10 May 2024", endDate: "30 Jun 2024", projectManager: "Sunil Verma" },
-  { id: "p4", name: "Digital Twin - Station", location: "Secunderabad", state: "TS", status: "Quotation Sent", progress: 0, client: "South Central Railway", projectId: "PRJ-2024-004", poValue: 0, startDate: "", endDate: "", projectManager: "Amit Kumar" },
+  { id: "p4", name: "Digital Twin - Station", location: "Secunderabad", state: "TS", status: "Quotation Sent", progress: 0, client: "South Central Railway", projectId: "PRJ-2024-004", poValue: 0, startDate: "", endDate: "", projectManager: "Roshan Singh" },
   { id: "p5", name: "Highway LiDAR Scan", location: "Hyderabad", state: "TS", status: "Completed", progress: 100, client: "NHAI", projectId: "PRJ-2024-005", poValue: 4200000, startDate: "01 Apr 2024", endDate: "30 Apr 2024", projectManager: "Ramesh Gupta" },
   { id: "p6", name: "Metro Corridor Survey", location: "Chennai", state: "TN", status: "On Hold", progress: 35, client: "CMRL", projectId: "PRJ-2024-006", poValue: 6000000, startDate: "15 Mar 2024", endDate: "15 Jun 2024", projectManager: "Prakash S" },
 ];
