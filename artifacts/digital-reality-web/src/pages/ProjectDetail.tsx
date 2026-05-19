@@ -1,20 +1,279 @@
 import { useApp } from "@/context/AppContext";
 import { useRoute } from "wouter";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { StatusBadge } from "@/components/StatusBadge";
 import { formatCurrency } from "@/lib/format";
 import { Progress } from "@/components/ui/progress";
-import { MapPin, Calendar, Briefcase, FileText, User as UserIcon, ActivitySquare, Receipt, AlertCircle } from "lucide-react";
+import { MapPin, Calendar, Briefcase, FileText, User as UserIcon, ActivitySquare, Receipt, AlertCircle, Download } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useState } from "react";
+
+async function exportProjectPDF(
+  project: ReturnType<typeof useApp>["projects"][0],
+  activities: ReturnType<typeof useApp>["activities"],
+  invoices: ReturnType<typeof useApp>["invoices"],
+  expenses: ReturnType<typeof useApp>["expenses"]
+) {
+  const { default: jsPDF } = await import("jspdf");
+  const { default: autoTable } = await import("jspdf-autotable");
+
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const pageW = doc.internal.pageSize.getWidth();
+  const margin = 14;
+  let y = 0;
+
+  const PRIMARY = [21, 101, 192] as [number, number, number];
+  const GREY = [100, 100, 100] as [number, number, number];
+  const LIGHT = [245, 247, 250] as [number, number, number];
+  const WHITE = [255, 255, 255] as [number, number, number];
+  const DARK = [30, 40, 55] as [number, number, number];
+
+  doc.setFillColor(...PRIMARY);
+  doc.rect(0, 0, pageW, 36, "F");
+
+  doc.setTextColor(...WHITE);
+  doc.setFontSize(18);
+  doc.setFont("helvetica", "bold");
+  doc.text("Digital Reality", margin, 14);
+
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "normal");
+  doc.text("Project Management — Field Operations", margin, 20);
+
+  doc.setFontSize(8);
+  doc.text(`Generated: ${new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })}`, pageW - margin, 14, { align: "right" });
+  doc.text(`Report ID: ${project.projectId}`, pageW - margin, 20, { align: "right" });
+
+  y = 44;
+  doc.setTextColor(...DARK);
+  doc.setFontSize(16);
+  doc.setFont("helvetica", "bold");
+  doc.text(project.name, margin, y);
+
+  y += 7;
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(...GREY);
+  doc.text(`${project.client}  ·  ${project.location}, ${project.state}  ·  ${project.projectId}`, margin, y);
+
+  y += 4;
+  doc.setDrawColor(220, 225, 235);
+  doc.setLineWidth(0.4);
+  doc.line(margin, y, pageW - margin, y);
+
+  y += 8;
+  const cardW = (pageW - margin * 2 - 9) / 4;
+  const cards = [
+    { label: "PO VALUE", value: formatCurrency(project.poValue) },
+    { label: "START DATE", value: project.startDate || "TBD" },
+    { label: "END DATE", value: project.endDate || "TBD" },
+    { label: "PROJECT MANAGER", value: project.projectManager },
+  ];
+  cards.forEach((c, i) => {
+    const x = margin + i * (cardW + 3);
+    doc.setFillColor(...LIGHT);
+    doc.roundedRect(x, y, cardW, 18, 2, 2, "F");
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(...GREY);
+    doc.text(c.label, x + 4, y + 6);
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...DARK);
+    doc.text(c.value, x + 4, y + 13, { maxWidth: cardW - 8 });
+  });
+
+  y += 26;
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(...GREY);
+  doc.text(`STATUS: ${project.status.toUpperCase()}`, margin, y);
+  doc.text(`PROGRESS: ${project.progress}%`, margin + 50, y);
+
+  y += 3;
+  doc.setDrawColor(220, 225, 235);
+  doc.setFillColor(220, 225, 235);
+  doc.roundedRect(margin, y, pageW - margin * 2, 4, 2, 2, "F");
+  doc.setFillColor(...PRIMARY);
+  doc.roundedRect(margin, y, (pageW - margin * 2) * project.progress / 100, 4, 2, 2, "F");
+
+  y += 12;
+
+  const sectionHeader = (title: string) => {
+    doc.setFillColor(...PRIMARY);
+    doc.rect(margin, y, 3, 6, "F");
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...DARK);
+    doc.text(title, margin + 6, y + 5);
+    y += 10;
+  };
+
+  sectionHeader("Field Activities");
+
+  if (activities.length === 0) {
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "italic");
+    doc.setTextColor(...GREY);
+    doc.text("No field activities logged for this project.", margin, y);
+    y += 10;
+  } else {
+    autoTable(doc, {
+      startY: y,
+      margin: { left: margin, right: margin },
+      head: [["Date", "Activity Type", "Location", "Area (sqkm)", "Equipment", "Progress", "Remarks"]],
+      body: activities.map(a => [
+        a.date,
+        a.activityType,
+        a.location,
+        `${a.areaCovered} sqkm`,
+        a.equipmentUsed.join(", "),
+        `${a.progress}%`,
+        a.remarks,
+      ]),
+      headStyles: { fillColor: PRIMARY, textColor: WHITE, fontSize: 8, fontStyle: "bold", cellPadding: 3 },
+      bodyStyles: { fontSize: 8, textColor: DARK, cellPadding: 3 },
+      alternateRowStyles: { fillColor: LIGHT },
+      columnStyles: {
+        0: { cellWidth: 22 },
+        1: { cellWidth: 34 },
+        2: { cellWidth: 24 },
+        3: { cellWidth: 20 },
+        4: { cellWidth: 32 },
+        5: { cellWidth: 18 },
+        6: { cellWidth: "auto" },
+      },
+      tableLineColor: [220, 225, 235],
+      tableLineWidth: 0.3,
+    });
+    y = (doc as any).lastAutoTable.finalY + 12;
+  }
+
+  sectionHeader("Invoices");
+
+  const totalInvoiced = invoices.reduce((s, i) => s + i.amount, 0);
+  const totalPaid = invoices.filter(i => i.status === "Paid").reduce((s, i) => s + i.amount, 0);
+  const totalPending = invoices.filter(i => i.status === "Pending" || i.status === "Partial").reduce((s, i) => s + i.amount, 0);
+
+  if (invoices.length === 0) {
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "italic");
+    doc.setTextColor(...GREY);
+    doc.text("No invoices raised yet.", margin, y);
+    y += 10;
+  } else {
+    autoTable(doc, {
+      startY: y,
+      margin: { left: margin, right: margin },
+      head: [["Invoice #", "Description", "Date", "Amount", "Status"]],
+      body: [
+        ...invoices.map(i => [i.number, i.description, i.date, formatCurrency(i.amount), i.status]),
+        ["", "TOTAL INVOICED", "", formatCurrency(totalInvoiced), ""],
+      ],
+      headStyles: { fillColor: PRIMARY, textColor: WHITE, fontSize: 8, fontStyle: "bold", cellPadding: 3 },
+      bodyStyles: { fontSize: 8, textColor: DARK, cellPadding: 3 },
+      alternateRowStyles: { fillColor: LIGHT },
+      didParseCell: (data: any) => {
+        if (data.row.index === invoices.length) {
+          data.cell.styles.fontStyle = "bold";
+          data.cell.styles.fillColor = [230, 238, 255];
+        }
+      },
+      tableLineColor: [220, 225, 235],
+      tableLineWidth: 0.3,
+    });
+    y = (doc as any).lastAutoTable.finalY + 8;
+
+    const summW = (pageW - margin * 2 - 6) / 3;
+    const summItems = [
+      { label: "Total Invoiced", value: formatCurrency(totalInvoiced) },
+      { label: "Received", value: formatCurrency(totalPaid) },
+      { label: "Pending", value: formatCurrency(totalPending) },
+    ];
+    summItems.forEach((s, i) => {
+      const x = margin + i * (summW + 3);
+      if (i === 2) {
+        doc.setFillColor(255, 247, 235);
+      } else {
+        doc.setFillColor(...LIGHT);
+      }
+      doc.roundedRect(x, y, summW, 14, 2, 2, "F");
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...GREY);
+      doc.text(s.label.toUpperCase(), x + 4, y + 5);
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "bold");
+      if (i === 2) {
+        doc.setTextColor(180, 80, 0);
+      } else {
+        doc.setTextColor(...DARK);
+      }
+      doc.text(s.value, x + 4, y + 12);
+    });
+    y += 20;
+  }
+
+  sectionHeader("Field Expenses");
+
+  const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0);
+
+  if (expenses.length === 0) {
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "italic");
+    doc.setTextColor(...GREY);
+    doc.text("No field expenses logged.", margin, y);
+    y += 10;
+  } else {
+    autoTable(doc, {
+      startY: y,
+      margin: { left: margin, right: margin },
+      head: [["Date", "Type", "Paid By", "Location", "Remarks", "Amount"]],
+      body: [
+        ...expenses.map(e => [e.date, e.expenseType, e.paidBy, e.location, e.remarks, `₹${e.amount.toLocaleString("en-IN")}`]),
+        ["", "", "", "", "TOTAL", `₹${totalExpenses.toLocaleString("en-IN")}`],
+      ],
+      headStyles: { fillColor: PRIMARY, textColor: WHITE, fontSize: 8, fontStyle: "bold", cellPadding: 3 },
+      bodyStyles: { fontSize: 8, textColor: DARK, cellPadding: 3 },
+      alternateRowStyles: { fillColor: LIGHT },
+      didParseCell: (data: any) => {
+        if (data.row.index === expenses.length) {
+          data.cell.styles.fontStyle = "bold";
+          data.cell.styles.fillColor = [230, 238, 255];
+        }
+      },
+      tableLineColor: [220, 225, 235],
+      tableLineWidth: 0.3,
+    });
+    y = (doc as any).lastAutoTable.finalY + 10;
+  }
+
+  const pageCount = (doc.internal as any).getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    const ph = doc.internal.pageSize.getHeight();
+    doc.setDrawColor(220, 225, 235);
+    doc.setLineWidth(0.3);
+    doc.line(margin, ph - 12, pageW - margin, ph - 12);
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(...GREY);
+    doc.text("Digital Reality — Confidential Project Report", margin, ph - 7);
+    doc.text(`Page ${i} of ${pageCount}`, pageW - margin, ph - 7, { align: "right" });
+  }
+
+  doc.save(`${project.projectId}_${project.name.replace(/\s+/g, "_")}_Report.pdf`);
+}
 
 export default function ProjectDetail() {
   const [, params] = useRoute("/projects/:id");
   const id = params?.id;
   const { projects, activities, invoices, expenses } = useApp();
-  
+  const [exporting, setExporting] = useState(false);
+
   const project = projects.find(p => p.id === id);
   const projectActivities = activities.filter(a => a.projectId === id);
   const projectInvoices = invoices.filter(i => i.projectId === id);
@@ -23,6 +282,15 @@ export default function ProjectDetail() {
   if (!project) {
     return <div className="p-8 text-center text-muted-foreground">Project not found</div>;
   }
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      await exportProjectPDF(project, projectActivities, projectInvoices, projectExpenses);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
     <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6">
@@ -38,12 +306,18 @@ export default function ProjectDetail() {
             <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5" /> {project.location}, {project.state}</span>
           </div>
         </div>
-        <div className="w-full md:w-64 space-y-2">
-          <div className="flex justify-between text-sm">
-            <span className="font-medium">Project Progress</span>
-            <span className="font-bold">{project.progress}%</span>
+        <div className="flex items-center gap-3">
+          <div className="w-full md:w-52 space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="font-medium">Progress</span>
+              <span className="font-bold">{project.progress}%</span>
+            </div>
+            <Progress value={project.progress} className="h-2.5" />
           </div>
-          <Progress value={project.progress} className="h-2.5" />
+          <Button onClick={handleExport} disabled={exporting} className="shrink-0 gap-2">
+            <Download className="w-4 h-4" />
+            {exporting ? "Generating…" : "Export PDF"}
+          </Button>
         </div>
       </div>
 
@@ -101,13 +375,9 @@ export default function ProjectDetail() {
           <TabsTrigger value="processing" className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-2 py-3">Data Processing</TabsTrigger>
           <TabsTrigger value="documents" className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-2 py-3">Documents</TabsTrigger>
         </TabsList>
-        
+
         <TabsContent value="field-work" className="pt-6 space-y-4">
-          <div className="flex justify-between items-center">
-            <h3 className="text-lg font-semibold">Activity Logs</h3>
-            <Button variant="outline" size="sm">Download Report</Button>
-          </div>
-          
+          <h3 className="text-lg font-semibold">Activity Logs</h3>
           {projectActivities.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground border rounded-lg border-dashed">
               No field activities logged for this project yet.
@@ -143,7 +413,7 @@ export default function ProjectDetail() {
             </div>
           )}
         </TabsContent>
-        
+
         <TabsContent value="billing" className="pt-6 space-y-8">
           <div className="space-y-4">
             <h3 className="text-lg font-semibold flex items-center gap-2">
