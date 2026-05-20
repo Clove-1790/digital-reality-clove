@@ -276,6 +276,51 @@ async function exportProjectPDF(
   doc.save(`${project.projectId}_${project.name.replace(/\s+/g, "_")}_Report.pdf`);
 }
 
+// ── Inline Edit Name ────────────────────────────────────────────────────────
+
+function InlineEditName({ value, onSave }: { value: string; onSave: (v: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+
+  useEffect(() => { setDraft(value); }, [value]);
+
+  const commit = () => {
+    const trimmed = draft.trim();
+    if (trimmed && trimmed !== value) onSave(trimmed);
+    else setDraft(value);
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={e => {
+          if (e.key === "Enter") commit();
+          if (e.key === "Escape") { setDraft(value); setEditing(false); }
+        }}
+        className="text-3xl font-bold tracking-tight bg-transparent border-b-2 border-primary outline-none w-full min-w-[200px] max-w-[500px] leading-tight"
+      />
+    );
+  }
+
+  return (
+    <button
+      onClick={() => setEditing(true)}
+      className="group flex items-center gap-2 text-left"
+      title="Click to edit project name"
+    >
+      <h1 className="text-3xl font-bold tracking-tight group-hover:text-primary transition-colors">
+        {value}
+      </h1>
+      <Pencil className="w-4 h-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+    </button>
+  );
+}
+
 // ── Edit Project Sheet ──────────────────────────────────────────────────────
 
 const PROJECT_STATUSES: ProjectStatus[] = ["Active", "Completed", "On Hold", "Planning", "Quotation Sent"];
@@ -604,7 +649,10 @@ export default function ProjectDetail() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b pb-6">
         <div>
           <div className="flex items-center gap-3 mb-1">
-            <h1 className="text-3xl font-bold tracking-tight">{project.name}</h1>
+            <InlineEditName
+              value={project.name}
+              onSave={(name) => updateProject(project.id, { name })}
+            />
             <StatusBadge status={project.status} className="text-sm" />
           </div>
           <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
