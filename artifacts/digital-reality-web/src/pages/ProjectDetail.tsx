@@ -2,10 +2,11 @@ import { useApp } from "@/context/AppContext";
 import { useRoute } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBadge } from "@/components/StatusBadge";
 import { formatCurrency } from "@/lib/format";
 import { Progress } from "@/components/ui/progress";
-import { MapPin, Calendar, Briefcase, FileText, User as UserIcon, ActivitySquare, Receipt, AlertCircle, Download } from "lucide-react";
+import { MapPin, Calendar, Briefcase, FileText, User as UserIcon, ActivitySquare, Receipt, AlertCircle, Download, Layers, Box } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -273,6 +274,9 @@ export default function ProjectDetail() {
   const id = params?.id;
   const { projects, activities, invoices, expenses } = useApp();
   const [exporting, setExporting] = useState(false);
+  const [fieldWorkSub, setFieldWorkSub] = useState("recce");
+  const [processingSub, setProcessingSub] = useState("qc");
+  const [modellingSub, setModellingSub] = useState("qc");
 
   const project = projects.find(p => p.id === id);
   const projectActivities = activities.filter(a => a.projectId === id);
@@ -369,15 +373,37 @@ export default function ProjectDetail() {
       </div>
 
       <Tabs defaultValue="field-work" className="mt-8">
-        <TabsList className="w-full justify-start border-b rounded-none h-auto p-0 bg-transparent gap-6">
-          <TabsTrigger value="field-work" className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-2 py-3">Field Work</TabsTrigger>
-          <TabsTrigger value="billing" className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-2 py-3">Billing & Expenses</TabsTrigger>
-          <TabsTrigger value="processing" className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-2 py-3">Data Processing</TabsTrigger>
-          <TabsTrigger value="documents" className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-2 py-3">Documents</TabsTrigger>
+        <TabsList className="w-full justify-start border-b rounded-none h-auto p-0 bg-transparent gap-6 overflow-x-auto">
+          <TabsTrigger value="field-work" className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-2 py-3 whitespace-nowrap">Field Work</TabsTrigger>
+          <TabsTrigger value="processing" className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-2 py-3 whitespace-nowrap">Processing</TabsTrigger>
+          <TabsTrigger value="modelling" className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-2 py-3 whitespace-nowrap">Modelling</TabsTrigger>
+          <TabsTrigger value="documents" className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-2 py-3 whitespace-nowrap">Documents</TabsTrigger>
+          <TabsTrigger value="billing" className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-2 py-3 whitespace-nowrap">Billing & Expenses</TabsTrigger>
         </TabsList>
 
+        {/* ── FIELD WORK ── */}
         <TabsContent value="field-work" className="pt-6 space-y-4">
-          <h3 className="text-lg font-semibold">Activity Logs</h3>
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold">Field Work</h3>
+            <Select value={fieldWorkSub} onValueChange={setFieldWorkSub}>
+              <SelectTrigger className="w-64">
+                <SelectValue placeholder="Select activity type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="recce">Recce</SelectItem>
+                <SelectItem value="scanning">Scanning</SelectItem>
+                <SelectItem value="instrumentation">Instrumentation on Railway Project</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-primary/5 border border-primary/20 text-sm text-primary font-medium">
+            <ActivitySquare className="w-4 h-4" />
+            {fieldWorkSub === "recce" && "Recce — Site reconnaissance and pre-survey inspection logs"}
+            {fieldWorkSub === "scanning" && "Scanning — LiDAR, drone, and 3D scan activity logs"}
+            {fieldWorkSub === "instrumentation" && "Instrumentation on Railway Project — Total station, GNSS, and sensor deployment logs"}
+          </div>
+
           {projectActivities.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground border rounded-lg border-dashed">
               No field activities logged for this project yet.
@@ -414,6 +440,99 @@ export default function ProjectDetail() {
           )}
         </TabsContent>
 
+        {/* ── PROCESSING ── */}
+        <TabsContent value="processing" className="pt-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold">Processing</h3>
+            <Select value={processingSub} onValueChange={setProcessingSub}>
+              <SelectTrigger className="w-48">
+                <SelectValue placeholder="Select stage" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="qc">QC — Quality Control</SelectItem>
+                <SelectItem value="qa">QA — Quality Assurance</SelectItem>
+                <SelectItem value="delivery">Delivery</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-blue-500/5 border border-blue-500/20 text-sm text-blue-700 font-medium">
+            <Layers className="w-4 h-4" />
+            {processingSub === "qc" && "QC — Point cloud cleaning, noise filtering, and accuracy verification"}
+            {processingSub === "qa" && "QA — Independent audit of processed outputs against project specifications"}
+            {processingSub === "delivery" && "Delivery — Final packaged outputs ready for client handover"}
+          </div>
+
+          <Card className="border-dashed bg-muted/20">
+            <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+              <Layers className="h-10 w-10 text-muted-foreground mb-4 opacity-50" />
+              <h3 className="font-semibold text-lg">
+                {processingSub === "qc" && "Quality Control"}
+                {processingSub === "qa" && "Quality Assurance"}
+                {processingSub === "delivery" && "Delivery"}
+              </h3>
+              <p className="text-sm text-muted-foreground mt-2 max-w-md">
+                {processingSub === "qc" && "Track point cloud classification, noise filtering, and accuracy checks here."}
+                {processingSub === "qa" && "Log independent QA audits, deviation reports, and approval sign-offs here."}
+                {processingSub === "delivery" && "Manage final deliverable packages, client submissions, and handover records here."}
+              </p>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── MODELLING ── */}
+        <TabsContent value="modelling" className="pt-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold">Modelling</h3>
+            <Select value={modellingSub} onValueChange={setModellingSub}>
+              <SelectTrigger className="w-48">
+                <SelectValue placeholder="Select stage" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="qc">QC — Quality Control</SelectItem>
+                <SelectItem value="qa">QA — Quality Assurance</SelectItem>
+                <SelectItem value="delivery">Delivery</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-violet-500/5 border border-violet-500/20 text-sm text-violet-700 font-medium">
+            <Box className="w-4 h-4" />
+            {modellingSub === "qc" && "QC — 3D model geometry validation, clash detection, and tolerance checks"}
+            {modellingSub === "qa" && "QA — Audit of BIM/CAD models against survey data and design specs"}
+            {modellingSub === "delivery" && "Delivery — Final model exports (IFC, DWG, RVT) for client handover"}
+          </div>
+
+          <Card className="border-dashed bg-muted/20">
+            <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+              <Box className="h-10 w-10 text-muted-foreground mb-4 opacity-50" />
+              <h3 className="font-semibold text-lg">
+                {modellingSub === "qc" && "Model Quality Control"}
+                {modellingSub === "qa" && "Model Quality Assurance"}
+                {modellingSub === "delivery" && "Model Delivery"}
+              </h3>
+              <p className="text-sm text-muted-foreground mt-2 max-w-md">
+                {modellingSub === "qc" && "Track 3D model geometry checks, tolerance validation, and clash detection logs here."}
+                {modellingSub === "qa" && "Log independent model audits against survey control data and design specifications."}
+                {modellingSub === "delivery" && "Manage final model exports (IFC, DWG, RVT), client submissions, and sign-off records."}
+              </p>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── DOCUMENTS ── */}
+        <TabsContent value="documents" className="pt-6">
+          <Card className="border-dashed bg-muted/20">
+            <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+              <FileText className="h-10 w-10 text-muted-foreground mb-4 opacity-50" />
+              <h3 className="font-semibold text-lg">Project Documents</h3>
+              <p className="text-sm text-muted-foreground mt-2 max-w-md">Upload and manage POs, site permits, and final deliverable reports.</p>
+              <Button variant="outline" className="mt-4">Upload Document</Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── BILLING & EXPENSES ── */}
         <TabsContent value="billing" className="pt-6 space-y-8">
           <div className="space-y-4">
             <h3 className="text-lg font-semibold flex items-center gap-2">
@@ -486,27 +605,6 @@ export default function ProjectDetail() {
               </Table>
             </div>
           </div>
-        </TabsContent>
-
-        <TabsContent value="processing" className="pt-6">
-          <Card className="border-dashed bg-muted/20">
-            <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-              <ActivitySquare className="h-10 w-10 text-muted-foreground mb-4 opacity-50" />
-              <h3 className="font-semibold text-lg">Processing Pipeline</h3>
-              <p className="text-sm text-muted-foreground mt-2 max-w-md">Data processing integration coming in v2. Track point cloud classification and orthomosaic generation here.</p>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="documents" className="pt-6">
-          <Card className="border-dashed bg-muted/20">
-            <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-              <FileText className="h-10 w-10 text-muted-foreground mb-4 opacity-50" />
-              <h3 className="font-semibold text-lg">Project Documents</h3>
-              <p className="text-sm text-muted-foreground mt-2 max-w-md">Upload and manage POs, site permits, and final deliverable reports.</p>
-              <Button variant="outline" className="mt-4">Upload Document</Button>
-            </CardContent>
-          </Card>
         </TabsContent>
       </Tabs>
     </div>
