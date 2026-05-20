@@ -1,12 +1,14 @@
 import { useApp } from "@/context/AppContext";
+import type { StageProgress } from "@/context/AppContext";
 import { useRoute } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { StatusBadge } from "@/components/StatusBadge";
 import { formatCurrency } from "@/lib/format";
 import { Progress } from "@/components/ui/progress";
-import { MapPin, Calendar, Briefcase, FileText, User as UserIcon, ActivitySquare, Receipt, AlertCircle, Download, Layers, Box } from "lucide-react";
+import { MapPin, Calendar, Briefcase, FileText, User as UserIcon, ActivitySquare, Receipt, AlertCircle, Download, Layers, Box, CheckCircle2, Circle, CalendarDays } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -269,10 +271,119 @@ async function exportProjectPDF(
   doc.save(`${project.projectId}_${project.name.replace(/\s+/g, "_")}_Report.pdf`);
 }
 
+const STAGE_META = {
+  qc: {
+    label: "QC — Quality Control",
+    desc: "Verify outputs meet accuracy and completeness standards.",
+    color: "text-blue-600",
+    bg: "bg-blue-50 border-blue-200",
+    doneBg: "bg-blue-500/10 border-blue-400",
+  },
+  qa: {
+    label: "QA — Quality Assurance",
+    desc: "Independent audit against project specifications.",
+    color: "text-violet-600",
+    bg: "bg-violet-50 border-violet-200",
+    doneBg: "bg-violet-500/10 border-violet-400",
+  },
+  delivery: {
+    label: "Delivery",
+    desc: "Final packaged outputs handed over to client.",
+    color: "text-green-600",
+    bg: "bg-green-50 border-green-200",
+    doneBg: "bg-green-500/10 border-green-400",
+  },
+} as const;
+
+function PipelineTracker({
+  pipeline,
+  stages,
+  onToggle,
+  accentClass,
+  icon: Icon,
+}: {
+  pipeline: "processing" | "modelling";
+  stages: StageProgress;
+  onToggle: (stage: "qc" | "qa" | "delivery", checked: boolean) => void;
+  accentClass: string;
+  icon: React.ElementType;
+}) {
+  const keys = ["qc", "qa", "delivery"] as const;
+  const done = keys.filter((k) => stages[k]).length;
+  const pct = Math.round((done / 3) * 100);
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-2">
+          <Icon className={`w-5 h-5 ${accentClass}`} />
+          <span className="text-sm font-semibold">{done}/3 stages complete</span>
+        </div>
+        <div className="flex items-center gap-3 flex-1 max-w-xs">
+          <Progress value={pct} className="h-2 flex-1" />
+          <span className={`text-sm font-bold tabular-nums ${accentClass}`}>{pct}%</span>
+        </div>
+      </div>
+
+      <div className="grid gap-3">
+        {keys.map((stage, i) => {
+          const meta = STAGE_META[stage];
+          const checked = stages[stage];
+          const dateKey = `${stage}Date` as keyof StageProgress;
+          const dateVal = stages[dateKey] as string | undefined;
+          const prevDone = i === 0 || stages[keys[i - 1]];
+
+          return (
+            <div
+              key={stage}
+              className={`flex items-start gap-4 p-4 rounded-lg border transition-all ${
+                checked ? meta.doneBg : prevDone ? meta.bg : "bg-muted/30 border-muted opacity-60"
+              }`}
+            >
+              <Checkbox
+                id={`${pipeline}-${stage}`}
+                checked={checked}
+                disabled={!prevDone && !checked}
+                onCheckedChange={(v) => onToggle(stage, !!v)}
+                className="mt-0.5"
+              />
+              <div className="flex-1 min-w-0">
+                <label
+                  htmlFor={`${pipeline}-${stage}`}
+                  className={`text-sm font-semibold cursor-pointer select-none flex items-center gap-2 ${checked ? meta.color : "text-foreground"}`}
+                >
+                  {checked ? (
+                    <CheckCircle2 className={`w-4 h-4 ${meta.color}`} />
+                  ) : (
+                    <Circle className="w-4 h-4 text-muted-foreground" />
+                  )}
+                  {meta.label}
+                  {!prevDone && !checked && (
+                    <Badge variant="outline" className="text-[10px] font-normal ml-1">Locked</Badge>
+                  )}
+                </label>
+                <p className="text-xs text-muted-foreground mt-0.5">{meta.desc}</p>
+                {checked && dateVal && (
+                  <p className={`text-xs mt-1 flex items-center gap-1 font-medium ${meta.color}`}>
+                    <CalendarDays className="w-3 h-3" /> Completed {dateVal}
+                  </p>
+                )}
+              </div>
+              {checked && (
+                <Badge className={`shrink-0 ${meta.color} bg-transparent border ${meta.doneBg}`}>Done</Badge>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function ProjectDetail() {
   const [, params] = useRoute("/projects/:id");
   const id = params?.id;
-  const { projects, activities, invoices, expenses } = useApp();
+  const { projects, activities, invoices, expenses, pipelines, togglePipelineStage } = useApp();
   const [exporting, setExporting] = useState(false);
   const [fieldWorkSub, setFieldWorkSub] = useState("recce");
   const [processingSub, setProcessingSub] = useState("qc");
@@ -441,12 +552,15 @@ export default function ProjectDetail() {
         </TabsContent>
 
         {/* ── PROCESSING ── */}
-        <TabsContent value="processing" className="pt-6 space-y-4">
+        <TabsContent value="processing" className="pt-6 space-y-6">
           <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold">Processing</h3>
+            <div>
+              <h3 className="text-lg font-semibold">Processing Pipeline</h3>
+              <p className="text-sm text-muted-foreground mt-0.5">Point cloud processing — check off each stage as it is completed.</p>
+            </div>
             <Select value={processingSub} onValueChange={setProcessingSub}>
               <SelectTrigger className="w-48">
-                <SelectValue placeholder="Select stage" />
+                <SelectValue placeholder="Jump to stage" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="qc">QC — Quality Control</SelectItem>
@@ -456,37 +570,34 @@ export default function ProjectDetail() {
             </Select>
           </div>
 
-          <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-blue-500/5 border border-blue-500/20 text-sm text-blue-700 font-medium">
-            <Layers className="w-4 h-4" />
-            {processingSub === "qc" && "QC — Point cloud cleaning, noise filtering, and accuracy verification"}
-            {processingSub === "qa" && "QA — Independent audit of processed outputs against project specifications"}
-            {processingSub === "delivery" && "Delivery — Final packaged outputs ready for client handover"}
-          </div>
+          <PipelineTracker
+            pipeline="processing"
+            stages={pipelines[id ?? ""]?.processing ?? { qc: false, qa: false, delivery: false }}
+            onToggle={(stage, checked) => togglePipelineStage(id ?? "", "processing", stage, checked)}
+            accentClass="text-blue-600"
+            icon={Layers}
+          />
 
-          <Card className="border-dashed bg-muted/20">
-            <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-              <Layers className="h-10 w-10 text-muted-foreground mb-4 opacity-50" />
-              <h3 className="font-semibold text-lg">
-                {processingSub === "qc" && "Quality Control"}
-                {processingSub === "qa" && "Quality Assurance"}
-                {processingSub === "delivery" && "Delivery"}
-              </h3>
-              <p className="text-sm text-muted-foreground mt-2 max-w-md">
-                {processingSub === "qc" && "Track point cloud classification, noise filtering, and accuracy checks here."}
-                {processingSub === "qa" && "Log independent QA audits, deviation reports, and approval sign-offs here."}
-                {processingSub === "delivery" && "Manage final deliverable packages, client submissions, and handover records here."}
-              </p>
+          <Card className="bg-blue-500/5 border-blue-200">
+            <CardContent className="p-4">
+              <p className="text-xs font-medium text-blue-700 uppercase tracking-wide mb-1">Stage Notes</p>
+              {processingSub === "qc" && <p className="text-sm text-muted-foreground">QC covers point cloud cleaning, noise filtering, and accuracy verification against ground control points.</p>}
+              {processingSub === "qa" && <p className="text-sm text-muted-foreground">QA involves an independent audit of processed outputs — checking deviation reports and approval sign-offs.</p>}
+              {processingSub === "delivery" && <p className="text-sm text-muted-foreground">Delivery packages final outputs (LAS, LAZ, OrthoMosaic, DEM) for client handover and archiving.</p>}
             </CardContent>
           </Card>
         </TabsContent>
 
         {/* ── MODELLING ── */}
-        <TabsContent value="modelling" className="pt-6 space-y-4">
+        <TabsContent value="modelling" className="pt-6 space-y-6">
           <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold">Modelling</h3>
+            <div>
+              <h3 className="text-lg font-semibold">Modelling Pipeline</h3>
+              <p className="text-sm text-muted-foreground mt-0.5">BIM/CAD modelling — check off each stage as it is completed.</p>
+            </div>
             <Select value={modellingSub} onValueChange={setModellingSub}>
               <SelectTrigger className="w-48">
-                <SelectValue placeholder="Select stage" />
+                <SelectValue placeholder="Jump to stage" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="qc">QC — Quality Control</SelectItem>
@@ -496,26 +607,20 @@ export default function ProjectDetail() {
             </Select>
           </div>
 
-          <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-violet-500/5 border border-violet-500/20 text-sm text-violet-700 font-medium">
-            <Box className="w-4 h-4" />
-            {modellingSub === "qc" && "QC — 3D model geometry validation, clash detection, and tolerance checks"}
-            {modellingSub === "qa" && "QA — Audit of BIM/CAD models against survey data and design specs"}
-            {modellingSub === "delivery" && "Delivery — Final model exports (IFC, DWG, RVT) for client handover"}
-          </div>
+          <PipelineTracker
+            pipeline="modelling"
+            stages={pipelines[id ?? ""]?.modelling ?? { qc: false, qa: false, delivery: false }}
+            onToggle={(stage, checked) => togglePipelineStage(id ?? "", "modelling", stage, checked)}
+            accentClass="text-violet-600"
+            icon={Box}
+          />
 
-          <Card className="border-dashed bg-muted/20">
-            <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-              <Box className="h-10 w-10 text-muted-foreground mb-4 opacity-50" />
-              <h3 className="font-semibold text-lg">
-                {modellingSub === "qc" && "Model Quality Control"}
-                {modellingSub === "qa" && "Model Quality Assurance"}
-                {modellingSub === "delivery" && "Model Delivery"}
-              </h3>
-              <p className="text-sm text-muted-foreground mt-2 max-w-md">
-                {modellingSub === "qc" && "Track 3D model geometry checks, tolerance validation, and clash detection logs here."}
-                {modellingSub === "qa" && "Log independent model audits against survey control data and design specifications."}
-                {modellingSub === "delivery" && "Manage final model exports (IFC, DWG, RVT), client submissions, and sign-off records."}
-              </p>
+          <Card className="bg-violet-500/5 border-violet-200">
+            <CardContent className="p-4">
+              <p className="text-xs font-medium text-violet-700 uppercase tracking-wide mb-1">Stage Notes</p>
+              {modellingSub === "qc" && <p className="text-sm text-muted-foreground">QC covers 3D model geometry validation, clash detection, and tolerance checks against survey control data.</p>}
+              {modellingSub === "qa" && <p className="text-sm text-muted-foreground">QA audits BIM/CAD models against design specifications and validates all survey-to-model accuracy.</p>}
+              {modellingSub === "delivery" && <p className="text-sm text-muted-foreground">Delivery exports final model files (IFC, DWG, RVT) and manages client submission and sign-off records.</p>}
             </CardContent>
           </Card>
         </TabsContent>

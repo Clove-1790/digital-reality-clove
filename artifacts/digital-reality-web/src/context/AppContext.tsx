@@ -68,6 +68,20 @@ export interface User {
   email: string;
 }
 
+export interface StageProgress {
+  qc: boolean;
+  qa: boolean;
+  delivery: boolean;
+  qcDate?: string;
+  qaDate?: string;
+  deliveryDate?: string;
+}
+
+export interface ProjectPipeline {
+  processing: StageProgress;
+  modelling: StageProgress;
+}
+
 interface AppState {
   user: User | null;
   projects: Project[];
@@ -75,6 +89,7 @@ interface AppState {
   equipment: Equipment[];
   invoices: Invoice[];
   expenses: Expense[];
+  pipelines: Record<string, ProjectPipeline>;
 }
 
 interface AppContextType extends AppState {
@@ -84,6 +99,12 @@ interface AppContextType extends AppState {
   addActivity: (a: Activity) => void;
   addExpense: (e: Expense) => void;
   updateProject: (id: string, updates: Partial<Project>) => void;
+  togglePipelineStage: (
+    projectId: string,
+    pipeline: "processing" | "modelling",
+    stage: "qc" | "qa" | "delivery",
+    checked: boolean
+  ) => void;
 }
 
 const SEED_PROJECTS: Project[] = [
@@ -126,9 +147,20 @@ const SEED_EXPENSES: Expense[] = [
   { id: "ex3", projectId: "p1", expenseType: "Vehicle", date: "14 May 2024", amount: 4500, paidBy: "Mahesh", location: "Kagaznagar", remarks: "Vehicle rental for equipment transport" },
 ];
 
+const EMPTY_STAGE: StageProgress = { qc: false, qa: false, delivery: false };
+const EMPTY_PIPELINE: ProjectPipeline = {
+  processing: { ...EMPTY_STAGE },
+  modelling: { ...EMPTY_STAGE },
+};
+
+const SEED_PIPELINES: Record<string, ProjectPipeline> = {
+  p1: { processing: { qc: true, qa: true, delivery: false, qcDate: "18 May 2024", qaDate: "20 May 2024" }, modelling: { qc: true, qa: false, delivery: false, qcDate: "21 May 2024" } },
+  p5: { processing: { qc: true, qa: true, delivery: true, qcDate: "10 Apr 2024", qaDate: "18 Apr 2024", deliveryDate: "28 Apr 2024" }, modelling: { qc: true, qa: true, delivery: true, qcDate: "12 Apr 2024", qaDate: "20 Apr 2024", deliveryDate: "29 Apr 2024" } },
+};
+
 const AppContext = createContext<AppContextType | null>(null);
 
-const STORAGE_KEY = "dr_app_data_web_v2";
+const STORAGE_KEY = "dr_app_data_web_v3";
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState>({
@@ -138,6 +170,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     equipment: SEED_EQUIPMENT,
     invoices: SEED_INVOICES,
     expenses: SEED_EXPENSES,
+    pipelines: SEED_PIPELINES,
   });
 
   const [initialized, setInitialized] = useState(false);
@@ -176,10 +209,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const updateProject = (id: string, updates: Partial<Project>) =>
     save({ projects: state.projects.map((p) => (p.id === id ? { ...p, ...updates } : p)) });
 
+  const togglePipelineStage = (
+    projectId: string,
+    pipeline: "processing" | "modelling",
+    stage: "qc" | "qa" | "delivery",
+    checked: boolean
+  ) => {
+    const existing = state.pipelines[projectId] ?? EMPTY_PIPELINE;
+    const dateKey = `${stage}Date` as keyof StageProgress;
+    const today = new Date().toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+    const updated: ProjectPipeline = {
+      ...existing,
+      [pipeline]: {
+        ...existing[pipeline],
+        [stage]: checked,
+        [dateKey]: checked ? today : undefined,
+      },
+    };
+    save({ pipelines: { ...state.pipelines, [projectId]: updated } });
+  };
+
   if (!initialized) return null;
 
   return (
-    <AppContext.Provider value={{ ...state, login, logout, addProject, addActivity, addExpense, updateProject }}>
+    <AppContext.Provider value={{ ...state, login, logout, addProject, addActivity, addExpense, updateProject, togglePipelineStage }}>
       {children}
     </AppContext.Provider>
   );
