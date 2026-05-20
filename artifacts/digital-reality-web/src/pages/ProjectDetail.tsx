@@ -8,7 +8,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { StatusBadge } from "@/components/StatusBadge";
 import { formatCurrency } from "@/lib/format";
 import { Progress } from "@/components/ui/progress";
-import { MapPin, Calendar, Briefcase, FileText, User as UserIcon, ActivitySquare, Receipt, AlertCircle, Download, Layers, Box, CheckCircle2, Circle, CalendarDays } from "lucide-react";
+import { MapPin, Calendar, Briefcase, FileText, User as UserIcon, ActivitySquare, Receipt, AlertCircle, Download, Layers, Box, CheckCircle2, Circle, CalendarDays, Clock, Ruler, Building2, Hash, ChevronDown, ChevronUp } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -385,6 +385,7 @@ export default function ProjectDetail() {
   const id = params?.id;
   const { projects, activities, invoices, expenses, pipelines, togglePipelineStage } = useApp();
   const [exporting, setExporting] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(true);
   const [fieldWorkSub, setFieldWorkSub] = useState("recce");
   const [processingSub, setProcessingSub] = useState("qc");
   const [modellingSub, setModellingSub] = useState("qc");
@@ -482,6 +483,128 @@ export default function ProjectDetail() {
           </CardContent>
         </Card>
       </div>
+
+      {/* ── PROJECT DETAILS ── */}
+      <Card className="border-border/60">
+        <button
+          onClick={() => setDetailsOpen(v => !v)}
+          className="w-full flex items-center justify-between p-5 text-left hover:bg-muted/30 transition-colors rounded-t-lg"
+        >
+          <div className="flex items-center gap-2">
+            <Hash className="w-4 h-4 text-muted-foreground" />
+            <span className="font-semibold text-sm">Project Details & Enquiry Information</span>
+          </div>
+          {detailsOpen ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+        </button>
+
+        {detailsOpen && (
+          <CardContent className="pt-0 pb-6 px-5 space-y-6">
+            <div className="border-t pt-5 grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* Client Codes */}
+              <div className="space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <Building2 className="w-3.5 h-3.5" /> Client Codes
+                </p>
+                <dl className="space-y-2">
+                  {[
+                    ["Client Group Code", project.clientGroupCode],
+                    ["Client Code", project.clientCode],
+                    ["Client 3 Code", project.client3Code],
+                    ["Bid / Quote", project.bidQuote],
+                  ].map(([label, value]) => (
+                    <div key={label as string} className="flex justify-between items-center py-1 border-b border-dashed border-border/40 last:border-0">
+                      <dt className="text-xs text-muted-foreground">{label}</dt>
+                      <dd className="text-xs font-medium text-right max-w-[60%] truncate">
+                        {value ? (
+                          label === "Bid / Quote" ? (
+                            <Badge variant={value === "Bid" ? "default" : "secondary"} className="text-[10px]">{value}</Badge>
+                          ) : value
+                        ) : <span className="text-muted-foreground/50">—</span>}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+
+              {/* Project Codes */}
+              <div className="space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <Hash className="w-3.5 h-3.5" /> Project Codes
+                </p>
+                <dl className="space-y-2">
+                  {[
+                    ["Clove Project Code", project.cloveProjectCode],
+                    ["Client Project Code", project.clientProjectCode],
+                    ["Area (Sq Km)", project.areaSqKm != null && project.areaSqKm > 0 ? `${project.areaSqKm} km²` : null],
+                    ["Resolution", project.resolution],
+                  ].map(([label, value]) => (
+                    <div key={label as string} className="flex justify-between items-center py-1 border-b border-dashed border-border/40 last:border-0">
+                      <dt className="text-xs text-muted-foreground">{label}</dt>
+                      <dd className="text-xs font-medium text-right max-w-[60%] truncate font-mono">
+                        {value ? value : <span className="text-muted-foreground/50 font-sans">—</span>}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+
+              {/* Hours */}
+              <div className="space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5" /> Hours Summary
+                </p>
+                <dl className="space-y-2">
+                  {[
+                    ["Quoted Hours", project.quotedHours],
+                    ["Order Hours", project.orderHours],
+                    ["Received Hours", project.receivedHours],
+                  ].map(([label, value]) => (
+                    <div key={label as string} className="flex justify-between items-center py-1 border-b border-dashed border-border/40 last:border-0">
+                      <dt className="text-xs text-muted-foreground">{label}</dt>
+                      <dd className="text-xs font-bold tabular-nums">
+                        {value != null && (value as number) > 0 ? `${value} hrs` : <span className="text-muted-foreground/50 font-normal">—</span>}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+                {project.quotedHours != null && project.quotedHours > 0 && (
+                  <div className="mt-2 space-y-1">
+                    <div className="flex justify-between text-[10px] text-muted-foreground">
+                      <span>Hours utilisation</span>
+                      <span>{Math.round(((project.receivedHours ?? 0) / project.quotedHours) * 100)}%</span>
+                    </div>
+                    <Progress value={Math.round(((project.receivedHours ?? 0) / project.quotedHours) * 100)} className="h-1.5" />
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Timeline row */}
+            <div className="border-t pt-4">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 mb-4">
+                <CalendarDays className="w-3.5 h-3.5" /> Key Dates
+              </p>
+              <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+                {[
+                  { label: "Enquiry", date: project.enquiryDate, color: "bg-slate-100 border-slate-200 text-slate-700" },
+                  { label: "Estimated", date: project.estimatedDate, color: "bg-blue-50 border-blue-200 text-blue-700" },
+                  { label: "Ordered", date: project.orderedDate, color: "bg-amber-50 border-amber-200 text-amber-700" },
+                  { label: "Input Receivable", date: project.inputReceivableDate, color: "bg-violet-50 border-violet-200 text-violet-700" },
+                  { label: "Proposed", date: project.proposedDate, color: "bg-orange-50 border-orange-200 text-orange-700" },
+                  { label: "Delivered", date: project.deliveredDate, color: "bg-green-50 border-green-200 text-green-700" },
+                ].map(({ label, date, color }) => (
+                  <div key={label} className={`rounded-lg border p-3 text-center ${date ? color : "bg-muted/20 border-dashed border-muted"}`}>
+                    <p className="text-[10px] font-semibold uppercase tracking-wide mb-1 opacity-70">{label}</p>
+                    <p className={`text-xs font-bold leading-tight ${date ? "" : "text-muted-foreground/40"}`}>
+                      {date || "—"}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        )}
+      </Card>
 
       <Tabs defaultValue="field-work" className="mt-8">
         <TabsList className="w-full justify-start border-b rounded-none h-auto p-0 bg-transparent gap-6 overflow-x-auto">

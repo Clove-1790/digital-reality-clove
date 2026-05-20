@@ -17,6 +17,23 @@ export interface Project {
   startDate: string;
   endDate: string;
   projectManager: string;
+  clientGroupCode?: string;
+  clientCode?: string;
+  client3Code?: string;
+  cloveProjectCode?: string;
+  clientProjectCode?: string;
+  bidQuote?: string;
+  enquiryDate?: string;
+  estimatedDate?: string;
+  orderedDate?: string;
+  inputReceivableDate?: string;
+  proposedDate?: string;
+  deliveredDate?: string;
+  quotedHours?: number;
+  orderHours?: number;
+  receivedHours?: number;
+  areaSqKm?: number;
+  resolution?: string;
 }
 
 export interface Activity {
@@ -108,12 +125,77 @@ interface AppContextType extends AppState {
 }
 
 const SEED_PROJECTS: Project[] = [
-  { id: "p1", name: "SCR Bridge Survey", location: "KagaZnagar", state: "TS", status: "Active", progress: 75, client: "South Central Railway", projectId: "PRJ-2024-001", poValue: 5000000, startDate: "12 May 2024", endDate: "25 May 2024", projectManager: "Roshan Singh" },
-  { id: "p2", name: "Rail Corridor Mapping", location: "Guntakal", state: "AP", status: "Active", progress: 60, client: "Indian Railways", projectId: "PRJ-2024-002", poValue: 3500000, startDate: "05 May 2024", endDate: "20 May 2024", projectManager: "Roshan Singh" },
-  { id: "p3", name: "SHM Monitoring Project", location: "Vijayawada", state: "AP", status: "Planning", progress: 40, client: "NHAI", projectId: "PRJ-2024-003", poValue: 2800000, startDate: "10 May 2024", endDate: "30 Jun 2024", projectManager: "Sunil Verma" },
-  { id: "p4", name: "Digital Twin - Station", location: "Secunderabad", state: "TS", status: "Quotation Sent", progress: 0, client: "South Central Railway", projectId: "PRJ-2024-004", poValue: 0, startDate: "", endDate: "", projectManager: "Roshan Singh" },
-  { id: "p5", name: "Highway LiDAR Scan", location: "Hyderabad", state: "TS", status: "Completed", progress: 100, client: "NHAI", projectId: "PRJ-2024-005", poValue: 4200000, startDate: "01 Apr 2024", endDate: "30 Apr 2024", projectManager: "Ramesh Gupta" },
-  { id: "p6", name: "Metro Corridor Survey", location: "Chennai", state: "TN", status: "On Hold", progress: 35, client: "CMRL", projectId: "PRJ-2024-006", poValue: 6000000, startDate: "15 Mar 2024", endDate: "15 Jun 2024", projectManager: "Prakash S" },
+  {
+    id: "p1", name: "SCR Bridge Survey", location: "KagaZnagar", state: "TS", status: "Active", progress: 75,
+    client: "South Central Railway", projectId: "PRJ-2024-001", poValue: 5000000,
+    startDate: "12 May 2024", endDate: "25 May 2024", projectManager: "Roshan Singh",
+    clientGroupCode: "SCR-GRP", clientCode: "SCR-HQ", client3Code: "SCR-ENGG",
+    cloveProjectCode: "CLV-2024-BR-001", clientProjectCode: "SCR/BRIDGE/KGZ/24",
+    bidQuote: "Quote", enquiryDate: "02 Apr 2024", estimatedDate: "20 May 2024",
+    orderedDate: "28 Apr 2024", inputReceivableDate: "10 May 2024",
+    proposedDate: "22 May 2024", deliveredDate: "",
+    quotedHours: 320, orderHours: 300, receivedHours: 224,
+    areaSqKm: 45.6, resolution: "5 cm",
+  },
+  {
+    id: "p2", name: "Rail Corridor Mapping", location: "Guntakal", state: "AP", status: "Active", progress: 60,
+    client: "Indian Railways", projectId: "PRJ-2024-002", poValue: 3500000,
+    startDate: "05 May 2024", endDate: "20 May 2024", projectManager: "Roshan Singh",
+    clientGroupCode: "IR-GRP", clientCode: "IR-SWR", client3Code: "IR-INFRA",
+    cloveProjectCode: "CLV-2024-RC-002", clientProjectCode: "IR/GTL/CORR/24",
+    bidQuote: "Bid", enquiryDate: "15 Mar 2024", estimatedDate: "18 May 2024",
+    orderedDate: "22 Apr 2024", inputReceivableDate: "04 May 2024",
+    proposedDate: "19 May 2024", deliveredDate: "",
+    quotedHours: 240, orderHours: 230, receivedHours: 138,
+    areaSqKm: 32.0, resolution: "10 cm",
+  },
+  {
+    id: "p3", name: "SHM Monitoring Project", location: "Vijayawada", state: "AP", status: "Planning", progress: 40,
+    client: "NHAI", projectId: "PRJ-2024-003", poValue: 2800000,
+    startDate: "10 May 2024", endDate: "30 Jun 2024", projectManager: "Sunil Verma",
+    clientGroupCode: "NHAI-GRP", clientCode: "NHAI-AP", client3Code: "",
+    cloveProjectCode: "CLV-2024-SHM-003", clientProjectCode: "NHAI/VJA/SHM/24",
+    bidQuote: "Quote", enquiryDate: "01 Apr 2024", estimatedDate: "28 Jun 2024",
+    orderedDate: "05 May 2024", inputReceivableDate: "09 May 2024",
+    proposedDate: "30 Jun 2024", deliveredDate: "",
+    quotedHours: 180, orderHours: 175, receivedHours: 70,
+    areaSqKm: 18.5, resolution: "3 cm",
+  },
+  {
+    id: "p4", name: "Digital Twin - Station", location: "Secunderabad", state: "TS", status: "Quotation Sent", progress: 0,
+    client: "South Central Railway", projectId: "PRJ-2024-004", poValue: 0,
+    startDate: "", endDate: "", projectManager: "Roshan Singh",
+    clientGroupCode: "SCR-GRP", clientCode: "SCR-SC", client3Code: "",
+    cloveProjectCode: "CLV-2024-DT-004", clientProjectCode: "",
+    bidQuote: "Quote", enquiryDate: "10 May 2024", estimatedDate: "",
+    orderedDate: "", inputReceivableDate: "", proposedDate: "", deliveredDate: "",
+    quotedHours: 500, orderHours: 0, receivedHours: 0,
+    areaSqKm: 0, resolution: "2 cm",
+  },
+  {
+    id: "p5", name: "Highway LiDAR Scan", location: "Hyderabad", state: "TS", status: "Completed", progress: 100,
+    client: "NHAI", projectId: "PRJ-2024-005", poValue: 4200000,
+    startDate: "01 Apr 2024", endDate: "30 Apr 2024", projectManager: "Ramesh Gupta",
+    clientGroupCode: "NHAI-GRP", clientCode: "NHAI-TS", client3Code: "NHAI-HYD",
+    cloveProjectCode: "CLV-2024-HW-005", clientProjectCode: "NHAI/HYD/LIDAR/24",
+    bidQuote: "Bid", enquiryDate: "10 Feb 2024", estimatedDate: "28 Apr 2024",
+    orderedDate: "18 Mar 2024", inputReceivableDate: "01 Apr 2024",
+    proposedDate: "30 Apr 2024", deliveredDate: "29 Apr 2024",
+    quotedHours: 280, orderHours: 275, receivedHours: 275,
+    areaSqKm: 85.2, resolution: "5 cm",
+  },
+  {
+    id: "p6", name: "Metro Corridor Survey", location: "Chennai", state: "TN", status: "On Hold", progress: 35,
+    client: "CMRL", projectId: "PRJ-2024-006", poValue: 6000000,
+    startDate: "15 Mar 2024", endDate: "15 Jun 2024", projectManager: "Prakash S",
+    clientGroupCode: "CMRL-GRP", clientCode: "CMRL-CH", client3Code: "",
+    cloveProjectCode: "CLV-2024-MT-006", clientProjectCode: "CMRL/CHN/METRO/24",
+    bidQuote: "Bid", enquiryDate: "20 Jan 2024", estimatedDate: "10 Jun 2024",
+    orderedDate: "28 Feb 2024", inputReceivableDate: "14 Mar 2024",
+    proposedDate: "15 Jun 2024", deliveredDate: "",
+    quotedHours: 420, orderHours: 400, receivedHours: 140,
+    areaSqKm: 62.3, resolution: "8 cm",
+  },
 ];
 
 const SEED_EQUIPMENT: Equipment[] = [
