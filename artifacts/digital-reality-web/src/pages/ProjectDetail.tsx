@@ -1,5 +1,5 @@
 import { useApp } from "@/context/AppContext";
-import type { StageProgress } from "@/context/AppContext";
+import type { StageProgress, Project, ProjectStatus } from "@/context/AppContext";
 import { useRoute } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -8,11 +8,16 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { StatusBadge } from "@/components/StatusBadge";
 import { formatCurrency } from "@/lib/format";
 import { Progress } from "@/components/ui/progress";
-import { MapPin, Calendar, Briefcase, FileText, User as UserIcon, ActivitySquare, Receipt, AlertCircle, Download, Layers, Box, CheckCircle2, Circle, CalendarDays, Clock, Ruler, Building2, Hash, ChevronDown, ChevronUp } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet";
+import { Separator } from "@/components/ui/separator";
+import { MapPin, Calendar, Briefcase, FileText, User as UserIcon, ActivitySquare, Receipt, AlertCircle, Download, Layers, Box, CheckCircle2, Circle, CalendarDays, Clock, Building2, Hash, ChevronDown, ChevronUp, Pencil, Save } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 async function exportProjectPDF(
   project: ReturnType<typeof useApp>["projects"][0],
@@ -271,6 +276,191 @@ async function exportProjectPDF(
   doc.save(`${project.projectId}_${project.name.replace(/\s+/g, "_")}_Report.pdf`);
 }
 
+// ── Edit Project Sheet ──────────────────────────────────────────────────────
+
+const PROJECT_STATUSES: ProjectStatus[] = ["Active", "Completed", "On Hold", "Planning", "Quotation Sent"];
+
+function FieldRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="grid grid-cols-[160px_1fr] items-center gap-3">
+      <Label className="text-xs text-muted-foreground text-right leading-tight">{label}</Label>
+      {children}
+    </div>
+  );
+}
+
+function SectionHead({ icon: Icon, title }: { icon: React.ElementType; title: string }) {
+  return (
+    <div className="flex items-center gap-2 pt-1">
+      <Icon className="w-4 h-4 text-muted-foreground" />
+      <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{title}</span>
+      <Separator className="flex-1" />
+    </div>
+  );
+}
+
+function EditProjectSheet({
+  project,
+  open,
+  onClose,
+}: {
+  project: Project;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const { updateProject } = useApp();
+  const [form, setForm] = useState<Project>(project);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => { setForm(project); }, [project]);
+
+  const set = (key: keyof Project, value: string | number) =>
+    setForm(prev => ({ ...prev, [key]: value }));
+
+  const num = (key: keyof Project) => (form[key] as number | undefined) ?? 0;
+  const str = (key: keyof Project) => (form[key] as string | undefined) ?? "";
+
+  const handleSave = () => {
+    setSaving(true);
+    updateProject(project.id, form);
+    setTimeout(() => { setSaving(false); onClose(); }, 300);
+  };
+
+  return (
+    <Sheet open={open} onOpenChange={v => { if (!v) onClose(); }}>
+      <SheetContent side="right" className="w-full sm:max-w-2xl p-0 flex flex-col">
+        <SheetHeader className="px-6 py-5 border-b">
+          <SheetTitle className="flex items-center gap-2">
+            <Pencil className="w-4 h-4" /> Edit Project
+          </SheetTitle>
+          <SheetDescription className="text-xs">{project.projectId} — {project.name}</SheetDescription>
+        </SheetHeader>
+
+        <ScrollArea className="flex-1 overflow-y-auto">
+          <div className="px-6 py-5 space-y-5">
+
+            {/* Core Info */}
+            <SectionHead icon={Briefcase} title="Core Information" />
+            <FieldRow label="Project Name">
+              <Input value={str("name")} onChange={e => set("name", e.target.value)} />
+            </FieldRow>
+            <FieldRow label="Client">
+              <Input value={str("client")} onChange={e => set("client", e.target.value)} />
+            </FieldRow>
+            <FieldRow label="Location">
+              <Input value={str("location")} onChange={e => set("location", e.target.value)} />
+            </FieldRow>
+            <FieldRow label="State">
+              <Input value={str("state")} onChange={e => set("state", e.target.value)} className="max-w-[80px]" />
+            </FieldRow>
+            <FieldRow label="Status">
+              <Select value={str("status")} onValueChange={v => set("status", v)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {PROJECT_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </FieldRow>
+            <FieldRow label="Project Manager">
+              <Input value={str("projectManager")} onChange={e => set("projectManager", e.target.value)} />
+            </FieldRow>
+            <FieldRow label="PO Value (₹)">
+              <Input type="number" value={num("poValue")} onChange={e => set("poValue", Number(e.target.value))} />
+            </FieldRow>
+            <FieldRow label="Progress (%)">
+              <div className="flex items-center gap-3">
+                <Input type="number" min={0} max={100} value={num("progress")} onChange={e => set("progress", Number(e.target.value))} className="max-w-[100px]" />
+                <Progress value={num("progress")} className="flex-1 h-2" />
+                <span className="text-sm font-bold w-10 text-right">{num("progress")}%</span>
+              </div>
+            </FieldRow>
+            <FieldRow label="Start Date">
+              <Input placeholder="DD Mon YYYY" value={str("startDate")} onChange={e => set("startDate", e.target.value)} />
+            </FieldRow>
+            <FieldRow label="End Date">
+              <Input placeholder="DD Mon YYYY" value={str("endDate")} onChange={e => set("endDate", e.target.value)} />
+            </FieldRow>
+
+            {/* Client Codes */}
+            <SectionHead icon={Building2} title="Client Codes" />
+            <FieldRow label="Client Group Code">
+              <Input value={str("clientGroupCode")} onChange={e => set("clientGroupCode", e.target.value)} />
+            </FieldRow>
+            <FieldRow label="Client Code">
+              <Input value={str("clientCode")} onChange={e => set("clientCode", e.target.value)} />
+            </FieldRow>
+            <FieldRow label="Client 3 Code">
+              <Input value={str("client3Code")} onChange={e => set("client3Code", e.target.value)} />
+            </FieldRow>
+            <FieldRow label="Bid / Quote">
+              <Select value={str("bidQuote") || "Quote"} onValueChange={v => set("bidQuote", v)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Bid">Bid</SelectItem>
+                  <SelectItem value="Quote">Quote</SelectItem>
+                </SelectContent>
+              </Select>
+            </FieldRow>
+
+            {/* Project Codes */}
+            <SectionHead icon={Hash} title="Project Codes" />
+            <FieldRow label="Clove Project Code">
+              <Input value={str("cloveProjectCode")} onChange={e => set("cloveProjectCode", e.target.value)} />
+            </FieldRow>
+            <FieldRow label="Client Project Code">
+              <Input value={str("clientProjectCode")} onChange={e => set("clientProjectCode", e.target.value)} />
+            </FieldRow>
+            <FieldRow label="Area (Sq Km)">
+              <Input type="number" step="0.1" value={num("areaSqKm")} onChange={e => set("areaSqKm", Number(e.target.value))} />
+            </FieldRow>
+            <FieldRow label="Resolution">
+              <Input placeholder="e.g. 5 cm" value={str("resolution")} onChange={e => set("resolution", e.target.value)} />
+            </FieldRow>
+
+            {/* Key Dates */}
+            <SectionHead icon={CalendarDays} title="Key Dates" />
+            {([
+              ["enquiryDate", "Enquiry Date"],
+              ["estimatedDate", "Estimated Date"],
+              ["orderedDate", "Ordered Date"],
+              ["inputReceivableDate", "Input Receivable Date"],
+              ["proposedDate", "Proposed Date"],
+              ["deliveredDate", "Delivered Date"],
+            ] as [keyof Project, string][]).map(([key, label]) => (
+              <FieldRow key={key} label={label}>
+                <Input placeholder="DD Mon YYYY" value={str(key)} onChange={e => set(key, e.target.value)} />
+              </FieldRow>
+            ))}
+
+            {/* Hours */}
+            <SectionHead icon={Clock} title="Hours" />
+            <FieldRow label="Quoted Hours">
+              <Input type="number" value={num("quotedHours")} onChange={e => set("quotedHours", Number(e.target.value))} />
+            </FieldRow>
+            <FieldRow label="Order Hours">
+              <Input type="number" value={num("orderHours")} onChange={e => set("orderHours", Number(e.target.value))} />
+            </FieldRow>
+            <FieldRow label="Received Hours">
+              <Input type="number" value={num("receivedHours")} onChange={e => set("receivedHours", Number(e.target.value))} />
+            </FieldRow>
+
+          </div>
+        </ScrollArea>
+
+        <SheetFooter className="px-6 py-4 border-t bg-muted/30 flex flex-row gap-3 justify-end">
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={handleSave} disabled={saving} className="gap-2">
+            <Save className="w-4 h-4" />
+            {saving ? "Saving…" : "Save Changes"}
+          </Button>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+// ── Pipeline Tracker ────────────────────────────────────────────────────────
+
 const STAGE_META = {
   qc: {
     label: "QC — Quality Control",
@@ -385,6 +575,7 @@ export default function ProjectDetail() {
   const id = params?.id;
   const { projects, activities, invoices, expenses, pipelines, togglePipelineStage } = useApp();
   const [exporting, setExporting] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(true);
   const [fieldWorkSub, setFieldWorkSub] = useState("recce");
   const [processingSub, setProcessingSub] = useState("qc");
@@ -430,6 +621,10 @@ export default function ProjectDetail() {
             </div>
             <Progress value={project.progress} className="h-2.5" />
           </div>
+          <Button variant="outline" onClick={() => setEditOpen(true)} className="shrink-0 gap-2">
+            <Pencil className="w-4 h-4" />
+            Edit
+          </Button>
           <Button onClick={handleExport} disabled={exporting} className="shrink-0 gap-2">
             <Download className="w-4 h-4" />
             {exporting ? "Generating…" : "Export PDF"}
@@ -835,6 +1030,8 @@ export default function ProjectDetail() {
           </div>
         </TabsContent>
       </Tabs>
+
+      <EditProjectSheet project={project} open={editOpen} onClose={() => setEditOpen(false)} />
     </div>
   );
 }
