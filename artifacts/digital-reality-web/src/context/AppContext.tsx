@@ -1,4 +1,9 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from "react";
+import { isSignedIn } from "@/services/googleAuth";
+import {
+  ensureSheetsExist, readSheetRows, appendRow, findRowIndex, updateRow, deleteRow,
+  TABS, TAB_HEADERS, serializeRow, deserializeRow, uploadToProjectFolder,
+} from "@/services/sheetsDataService";
 
 export type ProjectStatus = "Active" | "Completed" | "On Hold" | "Planning" | "Quotation Sent";
 export type EquipmentStatus = "In Use" | "Available" | "Maintenance";
@@ -9,6 +14,8 @@ export interface Project {
   name: string;
   location: string;
   state: string;
+  lat: number;
+  lng: number;
   status: ProjectStatus;
   progress: number;
   client: string;
@@ -36,6 +43,48 @@ export interface Project {
   resolution?: string;
 }
 
+export interface FieldWorkSection {
+  id: string;
+  date: string;
+  time: string;
+  location: string;
+  lat: number;
+  lng: number;
+  areaSqKm: number;
+  linearKm: number;
+  equipmentUsed: string[];
+  remarks: string;
+  completed: boolean;
+}
+
+export interface ProcessingSection {
+  id: string;
+  softwareUsed: string;
+  inputFiles: string;
+  outputFiles: string;
+  processingStatus: string;
+  remarks: string;
+  completed: boolean;
+}
+
+export interface ModellingSection {
+  id: string;
+  modelType: string;
+  softwareUsed: string;
+  modelFile: string;
+  remarks: string;
+  completed: boolean;
+}
+
+export interface DocumentationSection {
+  id: string;
+  reportUpload: string;
+  pdfUpload: string[];
+  documentVersion: string;
+  remarks: string;
+  completed: boolean;
+}
+
 export interface Activity {
   id: string;
   projectId: string;
@@ -44,10 +93,10 @@ export interface Activity {
   location: string;
   lat: number;
   lng: number;
-  equipmentUsed: string[];
-  areaCovered: number;
-  progress: number;
-  remarks: string;
+  fieldWork: FieldWorkSection;
+  processing: ProcessingSection;
+  modelling: ModellingSection;
+  documentation: DocumentationSection;
 }
 
 export interface Equipment {
@@ -56,6 +105,23 @@ export interface Equipment {
   type: string;
   status: EquipmentStatus;
   assignedTo: string;
+  serialNumber?: string;
+  quantity?: number;
+  location?: string;
+  lastSeen?: string;
+  notes?: string;
+  imageUrl?: string;
+}
+
+export interface EquipmentLogEntry {
+  id: string;
+  equipmentId: string;
+  equipmentName: string;
+  field: string;
+  oldValue: string;
+  newValue: string;
+  changedBy: string;
+  timestamp: string;
 }
 
 export interface Invoice {
@@ -68,6 +134,18 @@ export interface Invoice {
   status: InvoiceStatus;
 }
 
+export interface Advance {
+  id: string;
+  projectId: string;
+  personName: string;
+  amount: number;
+  date: string;
+  purpose: string;
+  settled: boolean;
+  settledDate?: string;
+  remarks: string;
+}
+
 export interface Expense {
   id: string;
   projectId: string;
@@ -77,26 +155,137 @@ export interface Expense {
   paidBy: string;
   location: string;
   remarks: string;
+  reviewStatus: "pending" | "submitted" | "approved" | "rejected";
+  reviewedBy?: string;
+  reviewedAt?: string;
+  rejectionReason?: string;
+}
+
+export interface Document {
+  id: string;
+  projectId: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  data: string;
+  uploadedAt: string;
+  category?: "document" | "invoice" | "expense";
+  expenseId?: string;
+  driveFileId?: string;
+  driveWebViewLink?: string;
 }
 
 export interface User {
   name: string;
   role: string;
   email: string;
+  isAdmin?: boolean;
+}
+
+export interface FieldWorkStage {
+  completed: boolean;
+  date?: string;
+  time?: string;
+  location?: string;
+  areaSqKm?: number;
+  linearKm?: number;
+}
+
+export type ProcessingStageName = "production" | "qc" | "qa" | "delivery";
+
+export interface ModellingDailyEntry {
+  id: string;
+  projectId: string;
+  personName: string;
+  startDate: string;
+  endDate: string;
+  startTime: string;
+  endTime: string;
+  totalHours: number;
+  process: ProcessingStageName;
+  status: string;
+  ipComp: string;
 }
 
 export interface StageProgress {
-  qc: boolean;
-  qa: boolean;
-  delivery: boolean;
-  qcDate?: string;
-  qaDate?: string;
-  deliveryDate?: string;
+  production: FieldWorkStage;
+  qc: FieldWorkStage;
+  qa: FieldWorkStage;
+  delivery: FieldWorkStage;
 }
+
+export type FieldWorkStageName = "recce" | "dgps" | "totalStation" | "scanning" | "instrumentation" | "uav" | "gpr";
 
 export interface ProjectPipeline {
   processing: StageProgress;
   modelling: StageProgress;
+  fieldWork: Record<FieldWorkStageName, FieldWorkStage>;
+}
+
+function calcActivityProgress(activity: Activity): number {
+  const sections = [activity.fieldWork, activity.processing, activity.modelling, activity.documentation];
+  const completed = sections.filter(s => s.completed).length;
+  return Math.round((completed / 4) * 100);
+}
+
+function createEmptyFieldWork(id: string): FieldWorkSection {
+  return { id, date: "", time: "", location: "", lat: 0, lng: 0, areaSqKm: 0, linearKm: 0, equipmentUsed: [], remarks: "", completed: false };
+}
+
+function createEmptyProcessing(id: string): ProcessingSection {
+  return { id, softwareUsed: "", inputFiles: "", outputFiles: "", processingStatus: "Pending", remarks: "", completed: false };
+}
+
+function createEmptyModelling(id: string): ModellingSection {
+  return { id, modelType: "", softwareUsed: "", modelFile: "", remarks: "", completed: false };
+}
+
+function createEmptyDocumentation(id: string): DocumentationSection {
+  return { id, reportUpload: "", pdfUpload: [], documentVersion: "", remarks: "", completed: false };
+}
+
+function migrateOldActivity(a: OldActivityFormat): Activity {
+  const fwId = `fw-${a.id}`;
+  return {
+    id: a.id,
+    projectId: a.projectId,
+    activityType: a.activityType,
+    date: a.date,
+    location: a.location,
+    lat: a.lat,
+    lng: a.lng,
+    fieldWork: {
+      id: fwId,
+      date: a.date,
+      time: "",
+      location: a.location,
+      lat: a.lat,
+      lng: a.lng,
+      areaSqKm: a.areaCovered,
+      linearKm: 0,
+      equipmentUsed: a.equipmentUsed,
+      remarks: a.remarks,
+      completed: true,
+    },
+    processing: createEmptyProcessing(`proc-${a.id}`),
+    modelling: createEmptyModelling(`mod-${a.id}`),
+    documentation: createEmptyDocumentation(`doc-${a.id}`),
+  };
+}
+
+interface OldActivityFormat {
+  id: string;
+  projectId: string;
+  activityType: string;
+  date: string;
+  location: string;
+  lat: number;
+  lng: number;
+  equipmentUsed: string[];
+  areaCovered: number;
+  progress: number;
+  remarks: string;
+  photos?: string[];
 }
 
 interface AppState {
@@ -104,168 +293,165 @@ interface AppState {
   projects: Project[];
   activities: Activity[];
   equipment: Equipment[];
+  equipmentLogs: EquipmentLogEntry[];
   invoices: Invoice[];
   expenses: Expense[];
+  advances: Advance[];
+  documents: Document[];
   pipelines: Record<string, ProjectPipeline>;
+  modellingDailyEntries: Record<string, ModellingDailyEntry[]>;
 }
 
 interface AppContextType extends AppState {
-  login: (email: string, password: string) => Promise<boolean>;
+  login: (email: string, password: string, userName?: string) => Promise<boolean>;
   logout: () => void;
   addProject: (p: Project) => void;
+  deleteProject: (id: string) => void;
   addActivity: (a: Activity) => void;
+  updateActivity: (id: string, updates: Partial<Activity>) => void;
+  updateActivityWorkflow: (activityId: string, section: "fieldWork" | "processing" | "modelling" | "documentation", data: Partial<FieldWorkSection | ProcessingSection | ModellingSection | DocumentationSection>) => void;
   addExpense: (e: Expense) => void;
+  deleteExpense: (id: string) => void;
+  updateExpense: (id: string, updates: Partial<Expense>) => void;
+  addInvoice: (i: Invoice) => void;
+  addAdvance: (a: Advance) => void;
+  updateAdvance: (id: string, updates: Partial<Advance>) => void;
+  deleteAdvance: (id: string) => void;
+  submitExpensesForReview: (projectId?: string) => void;
+  approveExpense: (id: string) => void;
+  rejectExpense: (id: string, reason: string) => void;
   updateProject: (id: string, updates: Partial<Project>) => void;
-  togglePipelineStage: (
-    projectId: string,
-    pipeline: "processing" | "modelling",
-    stage: "qc" | "qa" | "delivery",
-    checked: boolean
-  ) => void;
+  addEquipment: (e: Equipment) => void;
+  updateEquipment: (id: string, updates: Partial<Equipment>) => void;
+  deleteEquipment: (id: string) => void;
+  addEquipmentLog: (entry: EquipmentLogEntry) => void;
+  addDocument: (d: Document) => void;
+  updateDocument: (id: string, updates: Partial<Document>) => void;
+  deleteDocument: (id: string) => void;
+  togglePipelineStage: (projectId: string, pipeline: "processing" | "modelling", stage: ProcessingStageName, checked: boolean) => void;
+  setPipelineStageDetails: (projectId: string, pipeline: "processing" | "modelling", stage: ProcessingStageName, details: Partial<FieldWorkStage>) => void;
+  toggleFieldWorkStage: (projectId: string, stage: FieldWorkStageName, completed: boolean) => void;
+  setFieldWorkStageDateTime: (projectId: string, stage: FieldWorkStageName, date: string, time: string) => void;
+  setFieldWorkStageDetails: (projectId: string, stage: FieldWorkStageName, details: Partial<FieldWorkStage>) => void;
+  addModellingDailyEntry: (entry: ModellingDailyEntry) => void;
+  updateModellingDailyEntry: (id: string, updates: Partial<ModellingDailyEntry>) => void;
+  deleteModellingDailyEntry: (projectId: string, id: string) => void;
+  getActivityProgress: (activity: Activity) => number;
 }
 
-const SEED_PROJECTS: Project[] = [
-  {
-    id: "p1", name: "SCR Bridge Survey", location: "KagaZnagar", state: "TS", status: "Active", progress: 75,
-    client: "South Central Railway", projectId: "PRJ-2024-001", poValue: 5000000,
-    startDate: "12 May 2024", endDate: "25 May 2024", projectManager: "Roshan Singh",
-    clientGroupCode: "SCR-GRP", clientCode: "SCR-HQ", client3Code: "SCR-ENGG",
-    cloveProjectCode: "CLV-2024-BR-001", clientProjectCode: "SCR/BRIDGE/KGZ/24",
-    bidQuote: "Quote", enquiryDate: "02 Apr 2024", estimatedDate: "20 May 2024",
-    orderedDate: "28 Apr 2024", inputReceivableDate: "10 May 2024",
-    proposedDate: "22 May 2024", deliveredDate: "",
-    quotedHours: 320, orderHours: 300, receivedHours: 224,
-    areaSqKm: 45.6, resolution: "5 cm",
-  },
-  {
-    id: "p2", name: "Rail Corridor Mapping", location: "Guntakal", state: "AP", status: "Active", progress: 60,
-    client: "Indian Railways", projectId: "PRJ-2024-002", poValue: 3500000,
-    startDate: "05 May 2024", endDate: "20 May 2024", projectManager: "Roshan Singh",
-    clientGroupCode: "IR-GRP", clientCode: "IR-SWR", client3Code: "IR-INFRA",
-    cloveProjectCode: "CLV-2024-RC-002", clientProjectCode: "IR/GTL/CORR/24",
-    bidQuote: "Bid", enquiryDate: "15 Mar 2024", estimatedDate: "18 May 2024",
-    orderedDate: "22 Apr 2024", inputReceivableDate: "04 May 2024",
-    proposedDate: "19 May 2024", deliveredDate: "",
-    quotedHours: 240, orderHours: 230, receivedHours: 138,
-    areaSqKm: 32.0, resolution: "10 cm",
-  },
-  {
-    id: "p3", name: "SHM Monitoring Project", location: "Vijayawada", state: "AP", status: "Planning", progress: 40,
-    client: "NHAI", projectId: "PRJ-2024-003", poValue: 2800000,
-    startDate: "10 May 2024", endDate: "30 Jun 2024", projectManager: "Sunil Verma",
-    clientGroupCode: "NHAI-GRP", clientCode: "NHAI-AP", client3Code: "",
-    cloveProjectCode: "CLV-2024-SHM-003", clientProjectCode: "NHAI/VJA/SHM/24",
-    bidQuote: "Quote", enquiryDate: "01 Apr 2024", estimatedDate: "28 Jun 2024",
-    orderedDate: "05 May 2024", inputReceivableDate: "09 May 2024",
-    proposedDate: "30 Jun 2024", deliveredDate: "",
-    quotedHours: 180, orderHours: 175, receivedHours: 70,
-    areaSqKm: 18.5, resolution: "3 cm",
-  },
-  {
-    id: "p4", name: "Digital Twin - Station", location: "Secunderabad", state: "TS", status: "Quotation Sent", progress: 0,
-    client: "South Central Railway", projectId: "PRJ-2024-004", poValue: 0,
-    startDate: "", endDate: "", projectManager: "Roshan Singh",
-    clientGroupCode: "SCR-GRP", clientCode: "SCR-SC", client3Code: "",
-    cloveProjectCode: "CLV-2024-DT-004", clientProjectCode: "",
-    bidQuote: "Quote", enquiryDate: "10 May 2024", estimatedDate: "",
-    orderedDate: "", inputReceivableDate: "", proposedDate: "", deliveredDate: "",
-    quotedHours: 500, orderHours: 0, receivedHours: 0,
-    areaSqKm: 0, resolution: "2 cm",
-  },
-  {
-    id: "p5", name: "Highway LiDAR Scan", location: "Hyderabad", state: "TS", status: "Completed", progress: 100,
-    client: "NHAI", projectId: "PRJ-2024-005", poValue: 4200000,
-    startDate: "01 Apr 2024", endDate: "30 Apr 2024", projectManager: "Ramesh Gupta",
-    clientGroupCode: "NHAI-GRP", clientCode: "NHAI-TS", client3Code: "NHAI-HYD",
-    cloveProjectCode: "CLV-2024-HW-005", clientProjectCode: "NHAI/HYD/LIDAR/24",
-    bidQuote: "Bid", enquiryDate: "10 Feb 2024", estimatedDate: "28 Apr 2024",
-    orderedDate: "18 Mar 2024", inputReceivableDate: "01 Apr 2024",
-    proposedDate: "30 Apr 2024", deliveredDate: "29 Apr 2024",
-    quotedHours: 280, orderHours: 275, receivedHours: 275,
-    areaSqKm: 85.2, resolution: "5 cm",
-  },
-  {
-    id: "p6", name: "Metro Corridor Survey", location: "Chennai", state: "TN", status: "On Hold", progress: 35,
-    client: "CMRL", projectId: "PRJ-2024-006", poValue: 6000000,
-    startDate: "15 Mar 2024", endDate: "15 Jun 2024", projectManager: "Prakash S",
-    clientGroupCode: "CMRL-GRP", clientCode: "CMRL-CH", client3Code: "",
-    cloveProjectCode: "CLV-2024-MT-006", clientProjectCode: "CMRL/CHN/METRO/24",
-    bidQuote: "Bid", enquiryDate: "20 Jan 2024", estimatedDate: "10 Jun 2024",
-    orderedDate: "28 Feb 2024", inputReceivableDate: "14 Mar 2024",
-    proposedDate: "15 Jun 2024", deliveredDate: "",
-    quotedHours: 420, orderHours: 400, receivedHours: 140,
-    areaSqKm: 62.3, resolution: "8 cm",
-  },
-];
 
-const SEED_EQUIPMENT: Equipment[] = [
-  { id: "e1", name: "NavVis VLX 3", type: "Mobile LiDAR Scanner", status: "In Use", assignedTo: "Ramesh" },
-  { id: "e2", name: "Trinity F90+", type: "Fixed Wing UAV", status: "In Use", assignedTo: "Sunil" },
-  { id: "e3", name: "Leica GS18", type: "GNSS Receiver", status: "In Use", assignedTo: "Mahesh" },
-  { id: "e4", name: "Leica TS16", type: "Total Station", status: "Maintenance", assignedTo: "Prakash" },
-  { id: "e5", name: "FARO Focus S350", type: "3D Laser Scanner", status: "Available", assignedTo: "" },
-  { id: "e6", name: "DJI Matrice 300", type: "Drone UAV", status: "Available", assignedTo: "" },
-  { id: "e7", name: "Trimble R10", type: "GNSS Receiver", status: "In Use", assignedTo: "Vijay" },
-];
 
-const SEED_ACTIVITIES: Activity[] = [
-  { id: "a1", projectId: "p1", activityType: "Drone LiDAR Survey", date: "16 May 2024", location: "Kagaznagar", lat: 16.7563, lng: 80.4356, equipmentUsed: ["Trinity F90+", "GS18 DGPS"], areaCovered: 12.5, progress: 65, remarks: "Weather good. Completed Area 12.50 sqkm." },
-  { id: "a2", projectId: "p2", activityType: "GNSS Control Survey", date: "15 May 2024", location: "Guntakal", lat: 15.1667, lng: 77.3667, equipmentUsed: ["Leica GS18"], areaCovered: 8.0, progress: 50, remarks: "Set up 12 GCPs along corridor." },
-  { id: "a3", projectId: "p1", activityType: "Ground Truth Verification", date: "14 May 2024", location: "Kagaznagar", lat: 16.7563, lng: 80.4356, equipmentUsed: ["Leica TS16"], areaCovered: 3.2, progress: 80, remarks: "Cross-checked with design data." },
-];
-
-const SEED_INVOICES: Invoice[] = [
-  { id: "i1", projectId: "p1", number: "INV-001", description: "Advance", amount: 1000000, date: "01 May 2024", status: "Paid" },
-  { id: "i2", projectId: "p1", number: "INV-002", description: "Field Work Completion", amount: 1500000, date: "15 May 2024", status: "Partial" },
-  { id: "i3", projectId: "p1", number: "INV-003", description: "Processing Completion", amount: 1500000, date: "25 May 2024", status: "Pending" },
-  { id: "i4", projectId: "p1", number: "INV-004", description: "Final Delivery", amount: 1000000, date: "05 Jun 2024", status: "Not Raised" },
-  { id: "i5", projectId: "p2", number: "INV-005", description: "Advance", amount: 700000, date: "06 May 2024", status: "Paid" },
-  { id: "i6", projectId: "p2", number: "INV-006", description: "Field Work Completion", amount: 1050000, date: "22 May 2024", status: "Pending" },
-];
-
-const SEED_EXPENSES: Expense[] = [
-  { id: "ex1", projectId: "p1", expenseType: "Fuel", date: "16 May 2024", amount: 2500, paidBy: "Ramesh", location: "Kagaznagar", remarks: "Fuel for site visit" },
-  { id: "ex2", projectId: "p2", expenseType: "Accommodation", date: "15 May 2024", amount: 3200, paidBy: "Sunil", location: "Guntakal", remarks: "Hotel for 2 nights" },
-  { id: "ex3", projectId: "p1", expenseType: "Vehicle", date: "14 May 2024", amount: 4500, paidBy: "Mahesh", location: "Kagaznagar", remarks: "Vehicle rental for equipment transport" },
-];
-
-const EMPTY_STAGE: StageProgress = { qc: false, qa: false, delivery: false };
+const EMPTY_FIELD_WORK_STAGE: FieldWorkStage = { completed: false };
+const EMPTY_STAGE: StageProgress = { production: { ...EMPTY_FIELD_WORK_STAGE }, qc: { ...EMPTY_FIELD_WORK_STAGE }, qa: { ...EMPTY_FIELD_WORK_STAGE }, delivery: { ...EMPTY_FIELD_WORK_STAGE } };
 const EMPTY_PIPELINE: ProjectPipeline = {
   processing: { ...EMPTY_STAGE },
   modelling: { ...EMPTY_STAGE },
-};
-
-const SEED_PIPELINES: Record<string, ProjectPipeline> = {
-  p1: { processing: { qc: true, qa: true, delivery: false, qcDate: "18 May 2024", qaDate: "20 May 2024" }, modelling: { qc: true, qa: false, delivery: false, qcDate: "21 May 2024" } },
-  p5: { processing: { qc: true, qa: true, delivery: true, qcDate: "10 Apr 2024", qaDate: "18 Apr 2024", deliveryDate: "28 Apr 2024" }, modelling: { qc: true, qa: true, delivery: true, qcDate: "12 Apr 2024", qaDate: "20 Apr 2024", deliveryDate: "29 Apr 2024" } },
+  fieldWork: { recce: { ...EMPTY_FIELD_WORK_STAGE }, dgps: { ...EMPTY_FIELD_WORK_STAGE }, totalStation: { ...EMPTY_FIELD_WORK_STAGE }, scanning: { ...EMPTY_FIELD_WORK_STAGE }, instrumentation: { ...EMPTY_FIELD_WORK_STAGE }, uav: { ...EMPTY_FIELD_WORK_STAGE }, gpr: { ...EMPTY_FIELD_WORK_STAGE } },
 };
 
 const AppContext = createContext<AppContextType | null>(null);
 
 const STORAGE_KEY = "dr_app_data_web_v3";
 
+const DEFAULT_EQUIPMENT: Equipment[] = [
+  { id: "e1", name: "Navvis VLX3", type: "Mobile LiDAR Scanner", status: "In Use", assignedTo: "Roshan Singh", serialNumber: "G11-0070", quantity: 1, location: "Vizag" },
+  { id: "e2", name: "Navvis M6", type: "Mobile Mapping System", status: "In Use", assignedTo: "Roshan Singh", serialNumber: "TK2-M3-8-004", quantity: 1, location: "Vizag" },
+  { id: "e3", name: "Apple Ipad", type: "Tablet", status: "In Use", assignedTo: "Parag Sir", serialNumber: "DMPPD52BG5VN", quantity: 1, location: "HYD" },
+  { id: "e4", name: "Matterport Pro2", type: "3D Camera", status: "In Use", assignedTo: "Parag Sir", serialNumber: "M02HCD7M", quantity: 1, location: "HYD" },
+  { id: "e5", name: "Matterport", type: "3D Camera", status: "In Use", assignedTo: "Parag Sir", serialNumber: "MC200", quantity: 1, location: "HYD" },
+  { id: "e6", name: "Cannon Mark 200D", type: "DSLR Camera", status: "In Use", assignedTo: "Tarun", serialNumber: "DS126762", quantity: 1, location: "Vizag" },
+  { id: "e7", name: "Big Tripod", type: "Tripod", status: "In Use", assignedTo: "Parag Sir", serialNumber: "NA", quantity: 1, location: "HYD" },
+  { id: "e8", name: "Small Tripod (Camera)", type: "Tripod", status: "In Use", assignedTo: "Tarun", serialNumber: "VCT-R640", quantity: 1, location: "Vizag" },
+  { id: "e9", name: "Garmin VIRB 360", type: "360 Camera", status: "In Use", assignedTo: "Roshan Singh", serialNumber: "57J007546", quantity: 1, location: "Vizag" },
+  { id: "e10", name: "DJI Handy Cam (1 charger + 2 batteries)", type: "Action Camera", status: "In Use", assignedTo: "Roshan Singh", serialNumber: "06NDCJI20A00VF", quantity: 1, location: "Vizag" },
+  { id: "e11", name: "Contour2+", type: "Action Camera", status: "In Use", assignedTo: "Roshan Singh", serialNumber: "2050600653", quantity: 1, location: "Vizag" },
+  { id: "e12", name: "Stereo Lab ZED 2", type: "Depth Camera", status: "In Use", assignedTo: "Vijay Kesiraju", serialNumber: "19200", quantity: 1, location: "HYD" },
+  { id: "e13", name: "Sensefly eBee (Fixed Wing Drone)", type: "Drone", status: "Maintenance", assignedTo: "", serialNumber: "Damaged", quantity: 1, location: "Confirmed by Siddarth sir" },
+  { id: "e14", name: "Quantum Trinity F90 (Fixed-Wing VTOL)", type: "Drone", status: "In Use", assignedTo: "", serialNumber: "Mumbai", quantity: 1, location: "Confirmed by Siddarth sir" },
+  { id: "e15", name: "DJI Phantom Pro4 V2", type: "Drone", status: "Maintenance", assignedTo: "Roshan Singh", serialNumber: "Damaged", quantity: 1, location: "Vizag Office" },
+  { id: "e16", name: "Laptop", type: "Computer", status: "In Use", assignedTo: "Roshan Singh", serialNumber: "", quantity: 1, location: "Vizag" },
+  { id: "e17", name: "Hard Disk", type: "Storage", status: "In Use", assignedTo: "Roshan Singh", serialNumber: "4 TB", quantity: 1, location: "Vizag" },
+  { id: "e18", name: "Mouse", type: "Accessory", status: "In Use", assignedTo: "Roshan Singh", serialNumber: "", quantity: 1, location: "Vizag" },
+  { id: "e19", name: "Shoes", type: "Safety Gear", status: "In Use", assignedTo: "Roshan Singh", serialNumber: "", quantity: 7, location: "Vizag" },
+  { id: "e20", name: "Safety Jacket", type: "Safety Gear", status: "In Use", assignedTo: "Roshan Singh", serialNumber: "", quantity: 10, location: "Vizag" },
+  { id: "e21", name: "Safety Helmet", type: "Safety Gear", status: "In Use", assignedTo: "Roshan Singh", serialNumber: "", quantity: 10, location: "Vizag" },
+  { id: "e22", name: "Structure Sensor", type: "3D Scanner", status: "Available", assignedTo: "", serialNumber: "36608", quantity: 1, location: "" },
+  { id: "e23", name: "Project Tango Dev Kit Only Tab", type: "Tablet", status: "In Use", assignedTo: "Roshan Singh", serialNumber: "NX-74751", quantity: 1, location: "Vizag" },
+  { id: "e24", name: "Digital Lux Meter", type: "Measurement Tool", status: "In Use", assignedTo: "Roshan Singh", serialNumber: "DC-9V", quantity: 1, location: "Vizag" },
+  { id: "e25", name: "Disto D410", type: "Laser Distance Meter", status: "In Use", assignedTo: "Roshan Singh", serialNumber: "1050920891", quantity: 1, location: "Vizag" },
+  { id: "e26", name: "Walkie Talkie", type: "Communication", status: "In Use", assignedTo: "Roshan Singh", serialNumber: "P3BCF1404/P3BCF0270", quantity: 2, location: "Vizag" },
+  { id: "e27", name: "Insta 360 X5 & Selfie Stick", type: "360 Camera", status: "In Use", assignedTo: "Roshan Singh", serialNumber: "IAHEA2505E455F", quantity: 1, location: "Vizag" },
+  { id: "e28", name: "Gimbal Mozo", type: "Camera Gimbal", status: "In Use", assignedTo: "Roshan Singh", serialNumber: "2AMJRAIRCROSS-S", quantity: 1, location: "Vizag" },
+];
+
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState>({
-    user: null,
-    projects: SEED_PROJECTS,
-    activities: SEED_ACTIVITIES,
-    equipment: SEED_EQUIPMENT,
-    invoices: SEED_INVOICES,
-    expenses: SEED_EXPENSES,
-    pipelines: SEED_PIPELINES,
+    user: null, projects: [], activities: [], equipment: [], equipmentLogs: [],
+    invoices: [], expenses: [], advances: [], documents: [],
+    pipelines: {}, modellingDailyEntries: {},
   });
 
   const [initialized, setInitialized] = useState(false);
 
+  const persistState = useCallback((newState: Partial<AppState>) => {
+    setState((prev) => {
+      const merged = { ...prev, ...newState };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+      return merged;
+    });
+  }, []);
+
   useEffect(() => {
-    const data = localStorage.getItem(STORAGE_KEY);
-    if (data) {
-      try {
-        const parsed = JSON.parse(data);
-        setState((prev) => ({ ...prev, ...parsed }));
-      } catch {}
-    }
-    setInitialized(true);
+      const loadData = async () => {
+      // Load from localStorage first (fast)
+      const data = localStorage.getItem(STORAGE_KEY);
+      if (data) {
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed.projects) {
+            parsed.projects = parsed.projects.map((p: Record<string, unknown>) => ({
+              ...p, lat: p.lat ?? 0, lng: p.lng ?? 0,
+            }));
+          }
+          if (parsed.expenses) {
+            parsed.expenses = parsed.expenses.map((e: Record<string, unknown>) => ({
+              ...e,
+              reviewStatus: e.reviewStatus || "pending",
+            }));
+          }
+          if (parsed.activities) {
+            parsed.activities = parsed.activities.map((a: Record<string, unknown>) => {
+              if (a.fieldWork) return a;
+              return migrateOldActivity(a as unknown as OldActivityFormat);
+            });
+          }
+          setState((prev) => ({ ...prev, ...parsed }));
+        } catch {}
+      } else {
+        // Seed default equipment on fresh load
+        setState((prev) => ({ ...prev, equipment: DEFAULT_EQUIPMENT }));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ equipment: DEFAULT_EQUIPMENT }));
+      }
+
+      // Then try to load from Google Sheets (if signed in)
+      if (isSignedIn()) {
+        try {
+          await ensureSheetsExist();
+          const raw = await readSheetRows(TABS.PROJECTS as any);
+          if (raw.length > 0) {
+            const headers = TAB_HEADERS[TABS.PROJECTS];
+            const projects: Project[] = raw.map((r) => deserializeRow<Project>(headers, r));
+            setState((prev) => ({ ...prev, projects }));
+            localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}"), projects }));
+          }
+        } catch (err) {
+          console.warn("Failed to load data from sheets:", err);
+        }
+      }
+
+      setInitialized(true);
+    };
+    loadData();
   }, []);
 
   const save = (newState: Partial<AppState>) => {
@@ -276,45 +462,349 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
   };
 
-  const login = async (email: string, _password: string): Promise<boolean> => {
+  // For each data type, sync to sheets in background
+  const syncToSheet = useCallback(async (tab: string, rows: Record<string, any>[]) => {
+    if (!isSignedIn()) return;
+    try {
+      await ensureSheetsExist();
+      const token = await (await import("@/services/googleAuth")).getAccessToken();
+      const SHEET_ID = import.meta.env.VITE_GOOGLE_SHEET_ID;
+
+      // Equipment tab: merge with existing rows to preserve extra data
+      if (tab === TABS.EQUIPMENT) {
+        const readRes = await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent("Equipment!A:H")}`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        const existingData = await readRes.json();
+        const existingRows: string[][] = existingData.values || [];
+        const existingMap = new Map<string, string[]>();
+        for (let i = 1; i < existingRows.length; i++) {
+          const row = existingRows[i];
+          if (row[0]) existingMap.set(row[0], row);
+        }
+
+        const headers = TAB_HEADERS[TABS.EQUIPMENT];
+        const newRows: string[][] = [headers];
+        for (const item of rows) {
+          const existing = existingMap.get(item.id) || new Array(headers.length).fill("");
+          newRows.push([
+            item.id,
+            item.name,
+            item.type,
+            item.status,
+            item.assignedTo || existing[4] || "",
+            item.serialNumber || existing[5] || "",
+            String(item.quantity ?? existing[6] ?? 1),
+            item.location || existing[7] || "",
+          ]);
+        }
+        await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent("Equipment!A1")}?valueInputOption=RAW`,
+          { method: "PUT", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ values: newRows, majorDimension: "ROWS" }) }
+        );
+        return;
+      }
+
+      const headers = TAB_HEADERS[tab as keyof typeof TAB_HEADERS] || Object.keys(rows[0] || {});
+      const values: string[][] = [headers, ...rows.map((r) => serializeRow(headers, r as any))];
+      await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(tab + "!A1")}?valueInputOption=RAW`,
+        {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ values, majorDimension: "ROWS" }),
+        }
+      );
+    } catch (err) {
+      console.warn(`Failed to sync ${tab} to sheets:`, err);
+    }
+  }, []);
+
+  const login = async (email: string, _password: string, userName?: string): Promise<boolean> => {
     if (!email) return false;
-    const user: User = { name: "Roshan Singh", role: "Project Manager", email };
+    const name = userName || email.split("@")[0] || "User";
+    const isAdmin = name.toLowerCase().includes("roshan") || email.toLowerCase().includes("roshan") || email.includes("@clovetech.com") || email.includes("admin");
+    const user: User = { name, role: isAdmin ? "Admin" : "Project Manager", email, isAdmin };
     save({ user });
     return true;
   };
 
   const logout = () => save({ user: null });
 
-  const addProject = (p: Project) => save({ projects: [...state.projects, p] });
+  const addProject = (p: Project) => {
+    save({ projects: [...state.projects, p] });
+    syncToSheet(TABS.PROJECTS, [...state.projects, p]);
+  };
+
+  const deleteProject = (id: string) => {
+    const updated = state.projects.filter((p) => p.id !== id);
+    save({ projects: updated });
+    syncToSheet(TABS.PROJECTS, updated);
+  };
+
   const addActivity = (a: Activity) => save({ activities: [...state.activities, a] });
-  const addExpense = (e: Expense) => save({ expenses: [...state.expenses, e] });
-  const updateProject = (id: string, updates: Partial<Project>) =>
-    save({ projects: state.projects.map((p) => (p.id === id ? { ...p, ...updates } : p)) });
+
+  const updateActivity = (id: string, updates: Partial<Activity>) =>
+    save({ activities: state.activities.map((a) => (a.id === id ? { ...a, ...updates } : a)) });
+
+  const updateActivityWorkflow = (
+    activityId: string,
+    section: "fieldWork" | "processing" | "modelling" | "documentation",
+    data: Partial<FieldWorkSection | ProcessingSection | ModellingSection | DocumentationSection>
+  ) => {
+    save({
+      activities: state.activities.map((a) => {
+        if (a.id !== activityId) return a;
+        const updated = {
+          ...a,
+          [section]: { ...a[section], ...data },
+        };
+        return updated;
+      }),
+    });
+  };
+
+  const addExpense = (e: Expense) => {
+    save({ expenses: [...state.expenses, e] });
+    syncToSheet(TABS.EXPENSES, [...state.expenses, e]);
+  };
+  const deleteExpense = (id: string) => {
+    const updated = state.expenses.filter((e) => e.id !== id);
+    save({ expenses: updated });
+    syncToSheet(TABS.EXPENSES, updated);
+  };
+  const updateExpense = (id: string, updates: Partial<Expense>) => {
+    const updated = state.expenses.map((e) => (e.id === id ? { ...e, ...updates } : e));
+    save({ expenses: updated });
+    syncToSheet(TABS.EXPENSES, updated);
+  };
+  const submitExpensesForReview = (projectId?: string) => {
+    const updated = state.expenses.map((e) =>
+      (!projectId || e.projectId === projectId) && (e.reviewStatus === "pending" || e.reviewStatus === "rejected")
+        ? { ...e, reviewStatus: "submitted" as const, rejectionReason: undefined }
+        : e
+    );
+    save({ expenses: updated });
+    syncToSheet(TABS.EXPENSES, updated);
+  };
+  const approveExpense = (id: string) => {
+    const updated = state.expenses.map((e) =>
+      e.id === id
+        ? { ...e, reviewStatus: "approved" as const, reviewedBy: state.user?.name, reviewedAt: new Date().toISOString() }
+        : e
+    );
+    save({ expenses: updated });
+    syncToSheet(TABS.EXPENSES, updated);
+  };
+  const rejectExpense = (id: string, reason: string) => {
+    const updated = state.expenses.map((e) =>
+      e.id === id
+        ? { ...e, reviewStatus: "rejected" as const, rejectionReason: reason, reviewedBy: state.user?.name, reviewedAt: new Date().toISOString() }
+        : e
+    );
+    save({ expenses: updated });
+    syncToSheet(TABS.EXPENSES, updated);
+  };
+  const addInvoice = (i: Invoice) => {
+    save({ invoices: [...state.invoices, i] });
+    syncToSheet(TABS.INVOICES, [...state.invoices, i]);
+  };
+  const addAdvance = (a: Advance) => {
+    save({ advances: [...state.advances, a] });
+    syncToSheet(TABS.ADVANCES, [...state.advances, a]);
+  };
+  const updateAdvance = (id: string, updates: Partial<Advance>) => {
+    const updated = state.advances.map((a) => (a.id === id ? { ...a, ...updates } : a));
+    save({ advances: updated });
+    syncToSheet(TABS.ADVANCES, updated);
+  };
+  const deleteAdvance = (id: string) => {
+    const updated = state.advances.filter((a) => a.id !== id);
+    save({ advances: updated });
+    syncToSheet(TABS.ADVANCES, updated);
+  };
+  const updateProject = (id: string, updates: Partial<Project>) => {
+    const updated = state.projects.map((p) => (p.id === id ? { ...p, ...updates } : p));
+    save({ projects: updated });
+    syncToSheet(TABS.PROJECTS, updated);
+  };
+
+  const addEquipment = (e: Equipment) => {
+    save({ equipment: [...state.equipment, e] });
+    syncToSheet(TABS.EQUIPMENT, [...state.equipment, e]);
+  };
+  const updateEquipment = (id: string, updates: Partial<Equipment>) => {
+    const old = state.equipment.find(e => e.id === id);
+    const updated = state.equipment.map((e) => (e.id === id ? { ...e, ...updates } : e));
+    save({ equipment: updated });
+
+    // Create log entries for tracked field changes
+    if (old) {
+      const logEntries: EquipmentLogEntry[] = [];
+      const changedBy = state.user?.name || "System";
+      const ts = new Date().toISOString();
+      const tracked = ["assignedTo", "status", "location"] as const;
+      for (const field of tracked) {
+        const oldVal = String((old as any)[field] ?? "");
+        const newVal = String((updates as any)[field] ?? (old as any)[field] ?? "");
+        if (oldVal !== newVal) {
+          logEntries.push({
+            id: crypto.randomUUID(),
+            equipmentId: id,
+            equipmentName: old.name,
+            field,
+            oldValue: oldVal,
+            newValue: newVal,
+            changedBy,
+            timestamp: ts,
+          });
+        }
+      }
+      if (logEntries.length > 0) {
+        const merged = [...logEntries, ...state.equipmentLogs];
+        save({ equipmentLogs: merged });
+        syncToSheet(TABS.EQUIPMENT_LOG, merged);
+      }
+    }
+
+    syncToSheet(TABS.EQUIPMENT, updated);
+  };
+  const deleteEquipment = (id: string) => {
+    const updated = state.equipment.filter((e) => e.id !== id);
+    save({ equipment: updated });
+    syncToSheet(TABS.EQUIPMENT, updated);
+  };
+
+  const addEquipmentLog = (entry: EquipmentLogEntry) => {
+    const merged = [entry, ...state.equipmentLogs];
+    save({ equipmentLogs: merged });
+    syncToSheet(TABS.EQUIPMENT_LOG, merged);
+  };
+
+  const addDocument = (d: Document) => save({ documents: [...state.documents, d] });
+  const updateDocument = (id: string, updates: Partial<Document>) => save({ documents: state.documents.map((d) => d.id === id ? { ...d, ...updates } : d) });
+  const deleteDocument = (id: string) => save({ documents: state.documents.filter((d) => d.id !== id) });
 
   const togglePipelineStage = (
     projectId: string,
     pipeline: "processing" | "modelling",
-    stage: "qc" | "qa" | "delivery",
+    stage: ProcessingStageName,
     checked: boolean
   ) => {
     const existing = state.pipelines[projectId] ?? EMPTY_PIPELINE;
-    const dateKey = `${stage}Date` as keyof StageProgress;
-    const today = new Date().toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+    const now = new Date();
+    const today = now.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+    const nowTime = now.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false });
+    const current = existing[pipeline][stage] ?? {};
     const updated: ProjectPipeline = {
       ...existing,
       [pipeline]: {
         ...existing[pipeline],
-        [stage]: checked,
-        [dateKey]: checked ? today : undefined,
+        [stage]: checked
+          ? { completed: true, date: today, time: nowTime, location: current.location, areaSqKm: current.areaSqKm, linearKm: current.linearKm }
+          : { completed: false },
       },
     };
     save({ pipelines: { ...state.pipelines, [projectId]: updated } });
   };
 
+  const setPipelineStageDetails = (
+    projectId: string,
+    pipeline: "processing" | "modelling",
+    stage: ProcessingStageName,
+    details: Partial<FieldWorkStage>
+  ) => {
+    const existing = state.pipelines[projectId] ?? EMPTY_PIPELINE;
+    const current = existing[pipeline][stage] ?? {};
+    const updated: ProjectPipeline = {
+      ...existing,
+      [pipeline]: {
+        ...existing[pipeline],
+        [stage]: { ...current, ...details },
+      },
+    };
+    save({ pipelines: { ...state.pipelines, [projectId]: updated } });
+  };
+
+  const toggleFieldWorkStage = (projectId: string, stage: FieldWorkStageName, completed: boolean) => {
+    const existing = state.pipelines[projectId] ?? EMPTY_PIPELINE;
+    const now = new Date();
+    const today = now.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+    const nowTime = now.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false });
+    const current = existing.fieldWork[stage] ?? {};
+    const updated: ProjectPipeline = {
+      ...existing,
+      fieldWork: {
+        ...existing.fieldWork,
+        [stage]: completed
+          ? { completed, date: today, time: nowTime, location: current.location, areaSqKm: current.areaSqKm, linearKm: current.linearKm }
+          : { completed: false },
+      },
+    };
+    save({ pipelines: { ...state.pipelines, [projectId]: updated } });
+  };
+
+  const setFieldWorkStageDateTime = (projectId: string, stage: FieldWorkStageName, date: string, time: string) => {
+    const existing = state.pipelines[projectId] ?? EMPTY_PIPELINE;
+    const current = existing.fieldWork[stage] ?? {};
+    const updated: ProjectPipeline = {
+      ...existing,
+      fieldWork: {
+        ...existing.fieldWork,
+        [stage]: { ...current, date, time },
+      },
+    };
+    save({ pipelines: { ...state.pipelines, [projectId]: updated } });
+  };
+
+  const setFieldWorkStageDetails = (projectId: string, stage: FieldWorkStageName, details: Partial<FieldWorkStage>) => {
+    const existing = state.pipelines[projectId] ?? EMPTY_PIPELINE;
+    const current = existing.fieldWork[stage] ?? {};
+    const updated: ProjectPipeline = {
+      ...existing,
+      fieldWork: {
+        ...existing.fieldWork,
+        [stage]: { ...current, ...details },
+      },
+    };
+    save({ pipelines: { ...state.pipelines, [projectId]: updated } });
+  };
+
+  const addModellingDailyEntry = (entry: ModellingDailyEntry) => {
+    const existing = state.modellingDailyEntries[entry.projectId] ?? [];
+    save({ modellingDailyEntries: { ...state.modellingDailyEntries, [entry.projectId]: [...existing, entry] } });
+  };
+
+  const updateModellingDailyEntry = (id: string, updates: Partial<ModellingDailyEntry>) => {
+    const updated = { ...state.modellingDailyEntries };
+    for (const key of Object.keys(updated)) {
+      updated[key] = updated[key].map((e) => (e.id === id ? { ...e, ...updates } : e));
+    }
+    save({ modellingDailyEntries: updated });
+  };
+
+  const deleteModellingDailyEntry = (projectId: string, id: string) => {
+    const existing = state.modellingDailyEntries[projectId] ?? [];
+    save({ modellingDailyEntries: { ...state.modellingDailyEntries, [projectId]: existing.filter((e) => e.id !== id) } });
+  };
+
+  const getActivityProgress = (activity: Activity): number => calcActivityProgress(activity);
+
   if (!initialized) return null;
 
   return (
-    <AppContext.Provider value={{ ...state, login, logout, addProject, addActivity, addExpense, updateProject, togglePipelineStage }}>
+    <AppContext.Provider value={{
+      ...state, login, logout, addProject, deleteProject, addActivity, updateActivity, updateActivityWorkflow,
+      addExpense, deleteExpense, updateExpense, addInvoice, addAdvance, updateAdvance, deleteAdvance, submitExpensesForReview, approveExpense, rejectExpense, updateProject,
+      addEquipment, updateEquipment, deleteEquipment, addEquipmentLog, addDocument, updateDocument, deleteDocument,
+      setPipelineStageDetails, togglePipelineStage, toggleFieldWorkStage, setFieldWorkStageDateTime,
+      setFieldWorkStageDetails, addModellingDailyEntry, updateModellingDailyEntry, deleteModellingDailyEntry,
+      getActivityProgress,
+    }}>
       {children}
     </AppContext.Provider>
   );
