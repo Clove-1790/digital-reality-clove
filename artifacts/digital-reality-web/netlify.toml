@@ -1,5 +1,5 @@
 [build]
-  command = "pnpm run build"
+  command = "pnpm --filter @workspace/digital-reality-web run build"
   publish = "dist/public"
 
 [build.environment]
