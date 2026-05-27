@@ -1,6 +1,6 @@
 [build]
   command = "pnpm --filter @workspace/digital-reality-web run build"
-  publish = "dist/public"
+  publish = "artifacts/digital-reality-web/dist/public"
 
 [build.environment]
   NODE_VERSION = "20"
